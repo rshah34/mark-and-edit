@@ -15,6 +15,7 @@ export interface Marker {
   type: MarkerType;
   status: MarkerStatus;
   note?: string;
+  durationSec?: number;
   createdAtMs: number;
   inputToCreateDelayMs: number;
   seekLatencyMs?: number;

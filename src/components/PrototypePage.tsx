@@ -27,7 +27,7 @@ function median(values: number[]): number {
 
 const guide = [
   {
-    key: "Tap",
+    key: "Tap / L",
     detail: "Length edit marker",
     icon: <Circle size={14} />,
     className: "is-length",
@@ -71,6 +71,8 @@ export function PrototypePage() {
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [captionInput, setCaptionInput] = useState("");
+  const [captionDuration, setCaptionDuration] = useState(2);
+  const [durationUnit, setDurationUnit] = useState<"ms" | "s" | "min">("s");
   const [errorText, setErrorText] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -93,6 +95,14 @@ export function PrototypePage() {
     [markers],
   );
 
+  const activeCaption = markers.find(
+    (m) =>
+      m.type === "caption" &&
+      m.note &&
+      currentTime >= m.tSec &&
+      currentTime <= m.tSec + (m.durationSec ?? 2)
+  );
+
   useEffect(() => {
     const timeout = window.setTimeout(() => setFeedback(null), 1200);
     return () => window.clearTimeout(timeout);
@@ -100,7 +110,7 @@ export function PrototypePage() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!["watching", "marking"].includes(mode)) return;
+      if (!["watching", "marking", "editing"].includes(mode)) return;
       const activeTag = (event.target as HTMLElement | null)?.tagName;
       if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
 
@@ -249,6 +259,14 @@ export function PrototypePage() {
               ...m,
               status,
               note: note ?? (m.type === "caption" ? captionInput.trim() : undefined),
+              durationSec:
+                m.type === "caption"
+                  ? durationUnit === "ms"
+                    ? captionDuration / 1000
+                    : durationUnit === "min"
+                    ? captionDuration * 60
+                    : captionDuration
+                  : m.durationSec,
             }
           : m,
       ),
@@ -331,6 +349,7 @@ export function PrototypePage() {
 
         <div className="player-wrap card" onClick={onVideoTap}>
           {videoUrl ? (
+            <div style={{ position: "relative" }}>
             <video
               ref={videoRef}
               src={videoUrl}
@@ -359,6 +378,24 @@ export function PrototypePage() {
               onSeeked={onSeeked}
               className="video"
             />
+
+            {activeCaption && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "40px",
+                  width: "100%",
+                  textAlign: "center",
+                  color: "white",
+                  fontSize: "20px",
+                  fontWeight: "500",
+                  textShadow: "0px 2px 8px rgba(0,0,0,0.8)",
+                }}
+              >
+                {activeCaption.note}
+              </div>
+            )}
+          </div>
           ) : (
             <div className="video-placeholder">
               <Play size={30} />
@@ -448,12 +485,57 @@ export function PrototypePage() {
             </p>
 
             {selectedMarker.type === "caption" && (
-              <textarea
-                className="caption-input"
-                value={captionInput}
-                onChange={(e) => setCaptionInput(e.target.value)}
-                placeholder="Caption text"
-              />
+              <>
+                <textarea
+                  className="caption-input"
+                  value={captionInput}
+                  onChange={(e) => setCaptionInput(e.target.value)}
+                  placeholder="Caption text"
+                />
+
+                <div style={{ marginTop: "10px" }}>
+                  <p className="muted" style={{ marginBottom: "4px" }}>Duration</p>
+
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="number"
+                      min={0}
+                      value={captionDuration}
+                      onChange={(e) =>
+                        setCaptionDuration(Math.max(0, Number(e.target.value)))
+                      }
+                      style={{
+                        flex: 1,
+                        height: "36px",
+                        padding: "6px 10px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border)",
+                        background: "var(--panel)",
+                        color: "var(--text)",
+                        fontSize: "14px",
+                      }}
+                    />
+
+                    <select
+                      value={durationUnit}
+                      onChange={(e) => setDurationUnit(e.target.value as "ms" | "s" | "min")}
+                      style={{
+                        width: "70px",
+                        height: "36px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border)",
+                        background: "var(--panel)",
+                        color: "var(--text)",
+                        fontSize: "14px",
+                      }}
+                    >
+                      <option value="ms">ms</option>
+                      <option value="s">s</option>
+                      <option value="min">min</option>
+                    </select>
+                  </div>
+                </div>
+              </>
             )}
 
             <div className="action-stack">
