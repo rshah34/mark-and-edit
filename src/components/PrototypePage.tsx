@@ -85,6 +85,7 @@ export function PrototypePage() {
 
   const activeCaption = markers.find(
     (m) =>
+      m.status === "resolved" &&
       m.type === "caption" &&
       m.note &&
       currentTime >= m.tSec &&
