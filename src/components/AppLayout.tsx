@@ -11,8 +11,7 @@ export function AppLayout() {
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <p className="brand-kicker">Mark & Edit</p>
-          <h1>Implementation Prototypes</h1>
+          <h1 className="brand-kicker">Mark & Edit</h1>
         </div>
         <nav className="top-nav">
           {links.map((link) => (

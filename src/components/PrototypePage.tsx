@@ -2,6 +2,7 @@ import { ChangeEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "r
 import {
   AlertTriangle,
   Circle,
+  Download,
   Keyboard,
   Pause,
   Play,
@@ -14,16 +15,6 @@ import {
 } from "lucide-react";
 import { formatTime } from "../lib/time";
 import { Marker, MarkerType, UIMode } from "../types/prototype";
-
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 0) {
-    return (sorted[mid - 1] + sorted[mid]) / 2;
-  }
-  return sorted[mid];
-}
 
 const guide = [
   {
@@ -63,6 +54,7 @@ export function PrototypePage() {
   const pendingSeekStartMs = useRef<number | null>(null);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState("");
   const [mode, setMode] = useState<UIMode>("landing");
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -75,25 +67,21 @@ export function PrototypePage() {
   const [durationUnit, setDurationUnit] = useState<"ms" | "s" | "min">("s");
   const [errorText, setErrorText] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const selectedMarker = useMemo(
     () => markers.find((m) => m.id === selectedMarkerId) ?? null,
     [markers, selectedMarkerId],
   );
+  const showTimeline = markers.length > 0 && ["marking", "editing", "finalPlayback"].includes(mode);
+  const showTimelineActions = mode === "editing" || mode === "finalPlayback";
+  const timelineMarkers = markers.filter((m) => m.status === "open");
 
   const openCount = markers.filter((m) => m.status === "open").length;
   const resolvedCount = markers.filter((m) => m.status === "resolved").length;
   const skippedCount = markers.filter((m) => m.status === "skipped").length;
-
-  const medianCreateMs = useMemo(
-    () => median(markers.map((m) => m.inputToCreateDelayMs)),
-    [markers],
-  );
-
-  const medianSeekMs = useMemo(
-    () => median(markers.map((m) => m.seekLatencyMs ?? 0).filter((v) => v > 0)),
-    [markers],
-  );
+  const canDownloadCompletedVideo =
+    Boolean(videoUrl) && markers.length > 0 && openCount === 0 && showTimelineActions;
 
   const activeCaption = markers.find(
     (m) =>
@@ -107,6 +95,14 @@ export function PrototypePage() {
     const timeout = window.setTimeout(() => setFeedback(null), 1200);
     return () => window.clearTimeout(timeout);
   }, [feedback]);
+
+  useEffect(() => {
+    return () => {
+      if (videoUrl) {
+        URL.revokeObjectURL(videoUrl);
+      }
+    };
+  }, [videoUrl]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -129,7 +125,26 @@ export function PrototypePage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, currentTime]);
 
+  useEffect(() => {
+    if (!selectedMarkerId) return;
+    const marker = markers.find((m) => m.id === selectedMarkerId);
+    const video = videoRef.current;
+    if (!marker || !video) return;
+
+    video.pause();
+    setIsPlaying(false);
+    if (Math.abs(video.currentTime - marker.tSec) > 0.03) {
+      video.currentTime = marker.tSec;
+    }
+    setCurrentTime(marker.tSec);
+  }, [selectedMarkerId]);
+
   function resetSession() {
+    if (videoUrl) {
+      URL.revokeObjectURL(videoUrl);
+    }
+    setVideoUrl(null);
+    setUploadedFileName("");
     setMode("landing");
     setIsPlaying(false);
     setDuration(0);
@@ -150,8 +165,12 @@ export function PrototypePage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (videoUrl) {
+      URL.revokeObjectURL(videoUrl);
+    }
     const objectUrl = URL.createObjectURL(file);
     setVideoUrl(objectUrl);
+    setUploadedFileName(file.name);
     setMode("watching");
     setMarkers([]);
     setSelectedMarkerId(null);
@@ -159,6 +178,169 @@ export function PrototypePage() {
     setDuration(0);
     setErrorText(null);
     setFeedback("Video loaded. Press play to begin marking.");
+  }
+
+  function buildCompletedFileName(): string {
+    const fallback = "mark-and-edit-completed.webm";
+    if (!uploadedFileName) return fallback;
+    const dot = uploadedFileName.lastIndexOf(".");
+    if (dot <= 0) return uploadedFileName + "-completed.webm";
+    const base = uploadedFileName.slice(0, dot);
+    return `${base}-completed.webm`;
+  }
+
+  function getSupportedExportMimeType(): string {
+    const candidates = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ];
+    for (const mime of candidates) {
+      if (MediaRecorder.isTypeSupported(mime)) {
+        return mime;
+      }
+    }
+    return "";
+  }
+
+  async function downloadCompletedVideo() {
+    if (!videoUrl || !canDownloadCompletedVideo) {
+      setErrorText("Resolve all markers in editing mode before downloading.");
+      return;
+    }
+    if (isExporting) return;
+
+    const mimeType = getSupportedExportMimeType();
+    if (!mimeType) {
+      setErrorText("Browser does not support video export in this prototype.");
+      return;
+    }
+
+    setIsExporting(true);
+    setErrorText(null);
+    setFeedback("Exporting edited video...");
+
+    const sourceVideo = document.createElement("video");
+    sourceVideo.src = videoUrl;
+    sourceVideo.preload = "auto";
+    sourceVideo.muted = true;
+    sourceVideo.playsInline = true;
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        sourceVideo.onloadedmetadata = () => resolve();
+        sourceVideo.onerror = () => reject(new Error("Failed to load source video for export."));
+      });
+
+      const width = sourceVideo.videoWidth || 1280;
+      const height = sourceVideo.videoHeight || 720;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("Unable to create export canvas.");
+      }
+
+      const stream = canvas.captureStream(30);
+      const mediaCapture = (sourceVideo as HTMLVideoElement & {
+        captureStream?: () => MediaStream;
+        mozCaptureStream?: () => MediaStream;
+      });
+      const audioStream =
+        mediaCapture.captureStream?.() ?? mediaCapture.mozCaptureStream?.();
+      if (audioStream) {
+        for (const audioTrack of audioStream.getAudioTracks()) {
+          stream.addTrack(audioTrack);
+        }
+      }
+
+      const chunks: BlobPart[] = [];
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      const stopPromise = new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+      });
+
+      recorder.start();
+      await sourceVideo.play();
+
+      await new Promise<void>((resolve) => {
+        let rafId = 0;
+
+        const drawFrame = () => {
+          ctx.drawImage(sourceVideo, 0, 0, width, height);
+
+          const t = sourceVideo.currentTime;
+          const caption = markers.find(
+            (m) =>
+              m.status === "resolved" &&
+              m.type === "caption" &&
+              m.note &&
+              t >= m.tSec &&
+              t <= m.tSec + (m.durationSec ?? 2),
+          );
+
+          if (caption?.note) {
+            ctx.save();
+            ctx.font = `${Math.max(18, Math.round(height * 0.04))}px Inter, sans-serif`;
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#ffffff";
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+            ctx.lineWidth = 5;
+            const x = width / 2;
+            const y = height - Math.max(40, Math.round(height * 0.08));
+            ctx.strokeText(caption.note, x, y);
+            ctx.fillText(caption.note, x, y);
+            ctx.restore();
+          }
+
+          if (sourceVideo.ended) {
+            resolve();
+            return;
+          }
+          rafId = window.requestAnimationFrame(drawFrame);
+        };
+
+        sourceVideo.onended = () => {
+          window.cancelAnimationFrame(rafId);
+          resolve();
+        };
+        drawFrame();
+      });
+
+      recorder.stop();
+      await stopPromise;
+
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+
+      const blob = new Blob(chunks, { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = buildCompletedFileName();
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setFeedback("Edited video downloaded.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to export edited video.";
+      setErrorText(message);
+    } finally {
+      sourceVideo.pause();
+      sourceVideo.removeAttribute("src");
+      sourceVideo.load();
+      setIsExporting(false);
+    }
   }
 
   function addMarker(type: MarkerType) {
@@ -230,6 +412,7 @@ export function PrototypePage() {
     video.currentTime = marker.tSec;
     video.pause();
     setIsPlaying(false);
+    setMode("editing");
     setCurrentTime(marker.tSec);
     setSelectedMarkerId(marker.id);
     setErrorText(null);
@@ -333,8 +516,6 @@ export function PrototypePage() {
           <span>Time: <strong>{formatTime(currentTime)}</strong></span>
           <span>Markers: <strong>{markers.length}</strong></span>
           <span>Open/Resolved/Skipped: <strong>{openCount}/{resolvedCount}/{skippedCount}</strong></span>
-          <span>Median create delay: <strong>{medianCreateMs.toFixed(1)}ms</strong></span>
-          <span>Median seek latency: <strong>{medianSeekMs.toFixed(1)}ms</strong></span>
         </div>
 
         {errorText && (
@@ -368,7 +549,7 @@ export function PrototypePage() {
               onEnded={() => {
                 setIsPlaying(false);
                 if (mode === "finalPlayback") {
-                  setMode("watching");
+                  setMode("editing");
                   return;
                 }
                 setMode("editing");
@@ -440,14 +621,14 @@ export function PrototypePage() {
           </button>
         </div>
 
-        {(mode === "editing" || mode === "finalPlayback") && (
+        {showTimeline && (
           <div className="timeline card">
             <div className="timeline-head">
               <h3>Timeline</h3>
-              <span>{markers.length} markers</span>
+              <span>{timelineMarkers.length} open markers</span>
             </div>
             <div className="timeline-rail">
-              {markers.map((marker) => {
+              {timelineMarkers.map((marker) => {
                 const left = duration > 0 ? (marker.tSec / duration) * 100 : 0;
                 const classes = ["timeline-marker", markerClass(marker.type)];
                 if (marker.status !== "open") classes.push("is-dim");
@@ -465,10 +646,26 @@ export function PrototypePage() {
                 );
               })}
             </div>
-            <div className="timeline-actions">
-              <button className="ghost-btn" onClick={() => setMode("watching")}>Back to watch mode</button>
-              <button className="primary-btn" onClick={startFinalPlayback}>Start final playback</button>
-            </div>
+            {showTimelineActions ? (
+              <div className="timeline-actions">
+                <button className="ghost-btn" onClick={() => setMode("watching")}>Back to watch mode</button>
+                <div className="timeline-action-group">
+                  <button className="primary-btn" onClick={startFinalPlayback}>Start final playback</button>
+                  {canDownloadCompletedVideo && (
+                    <button
+                      className="primary-btn"
+                      onClick={downloadCompletedVideo}
+                      disabled={isExporting}
+                    >
+                      <Download size={16} />
+                      {isExporting ? "Exporting..." : "Download Completed Video"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="muted">Timeline updates live while you mark moments during playback.</p>
+            )}
           </div>
         )}
       </div>
@@ -494,9 +691,9 @@ export function PrototypePage() {
                 />
 
                 <div style={{ marginTop: "10px" }}>
-                  <p className="muted" style={{ marginBottom: "4px" }}>Duration</p>
+                  <p className="muted caption-duration-label">Duration</p>
 
-                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <div className="caption-duration-row">
                     <input
                       type="number"
                       min={0}
@@ -504,30 +701,13 @@ export function PrototypePage() {
                       onChange={(e) =>
                         setCaptionDuration(Math.max(0, Number(e.target.value)))
                       }
-                      style={{
-                        flex: 1,
-                        height: "36px",
-                        padding: "6px 10px",
-                        borderRadius: "8px",
-                        border: "1px solid var(--border)",
-                        background: "var(--panel)",
-                        color: "var(--text)",
-                        fontSize: "14px",
-                      }}
+                      className="caption-duration-input"
                     />
 
                     <select
                       value={durationUnit}
                       onChange={(e) => setDurationUnit(e.target.value as "ms" | "s" | "min")}
-                      style={{
-                        width: "70px",
-                        height: "36px",
-                        borderRadius: "8px",
-                        border: "1px solid var(--border)",
-                        background: "var(--panel)",
-                        color: "var(--text)",
-                        fontSize: "14px",
-                      }}
+                      className="caption-duration-select"
                     >
                       <option value="ms">ms</option>
                       <option value="s">s</option>
