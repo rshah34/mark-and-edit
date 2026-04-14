@@ -1,6 +1,10 @@
+export type LengthAction = "cut" | "speedUp" | "slowDown";
+
 export type MarkerType = "length" | "audioVisual" | "caption";
 
 export type MarkerStatus = "open" | "resolved" | "skipped";
+
+export type AudioAction = "mute" | "increase" | "decrease";
 
 export type UIMode =
   | "landing"
@@ -14,9 +18,18 @@ export interface Marker {
   tSec: number;
   type: MarkerType;
   status: MarkerStatus;
+
   note?: string;
   durationSec?: number;
+
   createdAtMs: number;
   inputToCreateDelayMs: number;
   seekLatencyMs?: number;
+
+  lengthAction?: LengthAction;
+  startTimeSec?: number;
+  endTimeSec?: number;
+  speedFactor?: number;
+
+  audioAction?: AudioAction;
 }

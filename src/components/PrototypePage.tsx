@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { formatTime } from "../lib/time";
-import { Marker, MarkerType, UIMode } from "../types/prototype";
+import { AudioAction, LengthAction, Marker, MarkerStatus, MarkerType, UIMode } from "../types/prototype";
 
 const guide = [
   {
@@ -25,7 +25,7 @@ const guide = [
   },
   {
     key: "Shift + Tap / X",
-    detail: "Audio/Visual edit marker",
+    detail: "Audio edit marker",
     icon: <Scissors size={14} />,
     className: "is-edit",
   },
@@ -52,6 +52,7 @@ function markerLabel(type: MarkerType): string {
 export function PrototypePage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pendingSeekStartMs = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState("");
@@ -59,12 +60,16 @@ export function PrototypePage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [volume, setVolume] = useState(0.8);
+  const [volume, setVolume] = useState(0.6);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [captionInput, setCaptionInput] = useState("");
   const [captionDuration, setCaptionDuration] = useState(2);
   const [durationUnit, setDurationUnit] = useState<"ms" | "s" | "min">("s");
+  const [lengthBeforeValue, setLengthBeforeValue] = useState(2);
+  const [lengthBeforeUnit, setLengthBeforeUnit] = useState<"ms" | "s" | "min">("s");
+  const [lengthAfterValue, setLengthAfterValue] = useState(2);
+  const [lengthAfterUnit, setLengthAfterUnit] = useState<"ms" | "s" | "min">("s");
   const [errorText, setErrorText] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -88,8 +93,10 @@ export function PrototypePage() {
       m.status === "resolved" &&
       m.type === "caption" &&
       m.note &&
-      currentTime >= m.tSec &&
-      currentTime <= m.tSec + (m.durationSec ?? 2)
+      m.startTimeSec !== undefined &&
+      m.endTimeSec !== undefined &&
+      currentTime >= m.startTimeSec &&
+      currentTime <= m.endTimeSec
   );
 
   useEffect(() => {
@@ -140,6 +147,47 @@ export function PrototypePage() {
     setCurrentTime(marker.tSec);
   }, [selectedMarkerId]);
 
+
+  useEffect(() => {
+    if (!selectedMarker) return;
+
+    if (selectedMarker.type === "length") {
+      const beforeSec =
+        selectedMarker.startTimeSec !== undefined
+          ? Math.max(0, selectedMarker.tSec - selectedMarker.startTimeSec)
+          : 2;
+
+      const afterSec =
+        selectedMarker.endTimeSec !== undefined
+          ? Math.max(0, selectedMarker.endTimeSec - selectedMarker.tSec)
+          : 2;
+
+      setLengthBeforeValue(beforeSec);
+      setLengthBeforeUnit("s");
+      setLengthAfterValue(afterSec);
+      setLengthAfterUnit("s");
+    }
+
+    if (selectedMarker.type === "caption") {
+      setCaptionInput(selectedMarker.note ?? "");
+
+      const beforeSec =
+        selectedMarker.startTimeSec !== undefined
+          ? Math.max(0, selectedMarker.tSec - selectedMarker.startTimeSec)
+          : 2;
+
+      const afterSec =
+        selectedMarker.endTimeSec !== undefined
+          ? Math.max(0, selectedMarker.endTimeSec - selectedMarker.tSec)
+          : 2;
+
+      setLengthBeforeValue(beforeSec);
+      setLengthBeforeUnit("s");
+      setLengthAfterValue(afterSec);
+      setLengthAfterUnit("s");
+    }
+  }, [selectedMarker]);
+
   function resetSession() {
     if (videoUrl) {
       URL.revokeObjectURL(videoUrl);
@@ -160,7 +208,63 @@ export function PrototypePage() {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
+    setLengthBeforeValue(2);
+    setLengthBeforeUnit("s");
+    setLengthAfterValue(2);
+    setLengthAfterUnit("s");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const applyEdits = () => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      video.playbackRate = 1;
+      video.volume = volume;
+
+      const edit = getActiveLengthEdit(video.currentTime);
+
+      if (edit?.lengthAction === "cut" && edit.endTimeSec !== undefined) {
+        video.currentTime = edit.endTimeSec;
+        return;
+      }
+
+      if (
+        edit?.lengthAction === "speedUp" ||
+        edit?.lengthAction === "slowDown"
+      ) {
+        video.playbackRate = edit.speedFactor ?? 1;
+      }
+
+      const audioEdit = getActiveAudioEdit(video.currentTime);
+
+      video.volume = volume;
+
+      if (audioEdit?.audioAction === "mute") {
+        video.volume = 0;
+      }
+
+      if (audioEdit?.audioAction === "increase") {
+        video.volume = Math.min(1, volume + 0.3);
+      }
+
+      if (audioEdit?.audioAction === "decrease") {
+        video.volume = Math.max(0, volume - 0.3);
+      }
+    };
+
+    video.addEventListener("timeupdate", applyEdits);
+
+    return () => {
+      video.removeEventListener("timeupdate", applyEdits);
+    };
+  }, [markers]);
 
   function onUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -202,6 +306,43 @@ export function PrototypePage() {
       }
     }
     return "";
+  }
+
+  function getActiveLengthEdit(timeSec: number) {
+    return markers.find(
+      (m) =>
+        m.type === "length" &&
+        m.status === "resolved" &&
+        m.lengthAction &&
+        m.startTimeSec !== undefined &&
+        m.endTimeSec !== undefined &&
+        timeSec >= m.startTimeSec &&
+        timeSec < m.endTimeSec,
+    );
+  }
+
+  function getActiveAudioEdit(timeSec: number) {
+    return markers.find(
+      (m) =>
+        m.type === "audioVisual" &&
+        m.status === "resolved" &&
+        m.audioAction &&
+        m.startTimeSec !== undefined &&
+        m.endTimeSec !== undefined &&
+        timeSec >= m.startTimeSec &&
+        timeSec <= m.endTimeSec
+    );
+  }
+
+  function getCutRegions() {
+    return markers.filter(
+      (m) =>
+        m.type === "length" &&
+        m.status === "resolved" &&
+        m.lengthAction === "cut" &&
+        m.startTimeSec !== undefined &&
+        m.endTimeSec !== undefined
+    );
   }
 
   async function downloadCompletedVideo() {
@@ -275,6 +416,23 @@ export function PrototypePage() {
         let rafId = 0;
 
         const drawFrame = () => {
+          const activeEdit = getActiveLengthEdit(sourceVideo.currentTime);
+
+          if (activeEdit?.lengthAction === "cut" && activeEdit.endTimeSec !== undefined) {
+            sourceVideo.currentTime = activeEdit.endTimeSec;
+            rafId = window.requestAnimationFrame(drawFrame);
+            return;
+          }
+
+          if (
+            activeEdit?.lengthAction === "speedUp" ||
+            activeEdit?.lengthAction === "slowDown"
+          ) {
+            sourceVideo.playbackRate = activeEdit.speedFactor ?? 1;
+          } else {
+            sourceVideo.playbackRate = 1;
+          }
+
           ctx.drawImage(sourceVideo, 0, 0, width, height);
 
           const t = sourceVideo.currentTime;
@@ -283,8 +441,8 @@ export function PrototypePage() {
               m.status === "resolved" &&
               m.type === "caption" &&
               m.note &&
-              t >= m.tSec &&
-              t <= m.tSec + (m.durationSec ?? 2),
+              t >= m.startTimeSec! &&
+              t <= m.endTimeSec!
           );
 
           if (caption?.note) {
@@ -312,6 +470,7 @@ export function PrototypePage() {
           window.cancelAnimationFrame(rafId);
           resolve();
         };
+
         drawFrame();
       });
 
@@ -428,6 +587,103 @@ export function PrototypePage() {
     );
   }
 
+  function toSeconds(value: number, unit: "ms" | "s" | "min"): number {
+    if (unit === "ms") return value / 1000;
+    if (unit === "min") return value * 60;
+    return value;
+  }
+
+  function applyLengthAction(action: LengthAction) {
+    if (!selectedMarker || selectedMarker.type !== "length") return;
+
+    const beforeSec = Math.max(0, toSeconds(lengthBeforeValue, lengthBeforeUnit));
+    const afterSec = Math.max(0, toSeconds(lengthAfterValue, lengthAfterUnit));
+
+    const startTimeSec = Math.max(0, selectedMarker.tSec - beforeSec);
+    const endTimeSec = selectedMarker.tSec + afterSec;
+
+    if (endTimeSec <= startTimeSec) {
+      setErrorText("End of edit range must be after the start.");
+      return;
+    }
+
+    let nextOpenId: string | null = null;
+
+    setMarkers((prev) => {
+      const updated = prev.map((m) =>
+        m.id === selectedMarker.id
+          ? {
+              ...m,
+              status: "resolved" as MarkerStatus,
+              lengthAction: action,
+              startTimeSec,
+              endTimeSec,
+              speedFactor:
+                action === "speedUp"
+                  ? 2
+                  : action === "slowDown"
+                  ? 0.5
+                  : undefined,
+            }
+          : m
+      );
+
+      const nextOpen = updated.find(
+        (m) => m.id !== selectedMarker.id && m.status === "open"
+      );
+
+      nextOpenId = nextOpen ? nextOpen.id : null;
+
+      return updated;
+    });
+
+    setSelectedMarkerId(nextOpenId);
+
+    setFeedback(
+      action === "cut"
+        ? "Length marker resolved: cut"
+        : action === "speedUp"
+        ? "Length marker resolved: speed up"
+        : "Length marker resolved: slow down"
+    );
+
+    setErrorText(null);
+  }
+
+  function applyAudioAction(action: AudioAction) {
+    if (!selectedMarker || selectedMarker.type !== "audioVisual") return;
+
+    const beforeSec = Math.max(0, toSeconds(lengthBeforeValue, lengthBeforeUnit));
+    const afterSec = Math.max(0, toSeconds(lengthAfterValue, lengthAfterUnit));
+
+    const startTimeSec = Math.max(0, selectedMarker.tSec - beforeSec);
+    const endTimeSec = selectedMarker.tSec + afterSec;
+
+    if (endTimeSec <= startTimeSec) {
+      setErrorText("End must be after start.");
+      return;
+    }
+
+    setMarkers((prev) =>
+      prev.map((m) =>
+        m.id === selectedMarker.id
+          ? {
+              ...m,
+              status: "resolved" as MarkerStatus,
+              audioAction: action,
+              startTimeSec,
+              endTimeSec,
+            }
+          : m
+      )
+    );
+
+    setSelectedMarkerId(null);
+
+    setFeedback(`Audio marker resolved: ${action}`);
+    setErrorText(null);
+  }
+
   function resolveSelected(status: "resolved" | "skipped", note?: string) {
     if (!selectedMarker) return;
 
@@ -437,23 +693,37 @@ export function PrototypePage() {
     }
 
     setMarkers((prev) =>
-      prev.map((m) =>
-        m.id === selectedMarker.id
-          ? {
-              ...m,
-              status,
-              note: note ?? (m.type === "caption" ? captionInput.trim() : undefined),
-              durationSec:
-                m.type === "caption"
-                  ? durationUnit === "ms"
-                    ? captionDuration / 1000
-                    : durationUnit === "min"
-                    ? captionDuration * 60
-                    : captionDuration
-                  : m.durationSec,
-            }
-          : m,
-      ),
+      prev.map((m) => {
+        if (m.id !== selectedMarker.id) return m;
+
+        // ===== CAPTION RANGE LOGIC =====
+        if (m.type === "caption" && status === "resolved") {
+          const beforeSec = Math.max(0, toSeconds(lengthBeforeValue, lengthBeforeUnit));
+          const afterSec = Math.max(0, toSeconds(lengthAfterValue, lengthAfterUnit));
+
+          const startTimeSec = Math.max(0, m.tSec - beforeSec);
+          const endTimeSec = m.tSec + afterSec;
+
+          return {
+            ...m,
+            status,
+            note: captionInput.trim(),
+            startTimeSec,
+            endTimeSec,
+          };
+        }
+
+        // ===== DEFAULT (non-caption) =====
+        return {
+          ...m,
+          status,
+          note: note ?? undefined,
+          lengthAction: status === "skipped" ? undefined : m.lengthAction,
+          startTimeSec: status === "skipped" ? undefined : m.startTimeSec,
+          endTimeSec: status === "skipped" ? undefined : m.endTimeSec,
+          speedFactor: status === "skipped" ? undefined : m.speedFactor,
+        };
+      })
     );
 
     setFeedback(status === "resolved" ? "Marker resolved" : "Marker skipped");
@@ -505,7 +775,13 @@ export function PrototypePage() {
         <label className="upload-btn">
           <Upload size={16} />
           Upload Clip
-          <input type="file" accept="video/*" onChange={onUpload} hidden />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*"
+            onChange={onUpload}
+            hidden
+          />
         </label>
 
         <button className="ghost-btn" onClick={resetSession}>Exit to landing</button>
@@ -603,8 +879,17 @@ export function PrototypePage() {
             onChange={(e) => {
               const next = Number(e.target.value);
               if (!videoRef.current) return;
-              videoRef.current.currentTime = next;
-              setCurrentTime(next);
+
+              const cuts = getCutRegions();
+
+              const cut = cuts.find(
+                (c) => next >= c.startTimeSec! && next <= c.endTimeSec!
+              );
+
+              const safeTime = cut ? cut.endTimeSec! : next;
+
+              videoRef.current.currentTime = safeTime;
+              setCurrentTime(safeTime);
             }}
           />
           <span className="time-readout">{formatTime(duration)}</span>
@@ -629,6 +914,30 @@ export function PrototypePage() {
               <span>{timelineMarkers.length} open markers</span>
             </div>
             <div className="timeline-rail">
+              {getCutRegions().map((cut, i) => {
+                const safeStart = Math.max(0, Math.min(cut.startTimeSec!, duration));
+                const safeEnd = Math.max(0, Math.min(cut.endTimeSec!, duration));
+
+                const left = duration > 0 ? (safeStart / duration) * 100 : 0;
+                const width =
+                  duration > 0 ? ((safeEnd - safeStart) / duration) * 100 : 0;
+
+                const clampedWidth = Math.max(0, Math.min(width, 100 - left));
+
+                return (
+                  <div
+                    key={"cut-" + i}
+                    style={{
+                      position: "absolute",
+                      left: `${left}%`,
+                      width: `${clampedWidth}%`,
+                      height: "100%",
+                      background: "rgba(255, 0, 0, 0.25)",
+                      pointerEvents: "none",
+                    }}
+                  />
+                );
+              })}
               {timelineMarkers.map((marker) => {
                 const left = duration > 0 ? (marker.tSec / duration) * 100 : 0;
                 const classes = ["timeline-marker", markerClass(marker.type)];
@@ -692,45 +1001,226 @@ export function PrototypePage() {
                 />
 
                 <div style={{ marginTop: "10px" }}>
-                  <p className="muted caption-duration-label">Duration</p>
+                  <p className="muted caption-duration-label">
+                    Display range relative to marker
+                  </p>
 
-                  <div className="caption-duration-row">
-                    <input
-                      type="number"
-                      min={0}
-                      value={captionDuration}
-                      onChange={(e) =>
-                        setCaptionDuration(Math.max(0, Number(e.target.value)))
-                      }
-                      className="caption-duration-input"
-                    />
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    <div>
+                      <p className="muted caption-duration-label">Before marker</p>
+                      <div className="caption-duration-row">
+                        <input
+                          type="number"
+                          min={0}
+                          value={lengthBeforeValue}
+                          onChange={(e) =>
+                            setLengthBeforeValue(Math.max(0, Number(e.target.value)))
+                          }
+                          className="caption-duration-input"
+                        />
 
-                    <select
-                      value={durationUnit}
-                      onChange={(e) => setDurationUnit(e.target.value as "ms" | "s" | "min")}
-                      className="caption-duration-select"
-                    >
-                      <option value="ms">ms</option>
-                      <option value="s">s</option>
-                      <option value="min">min</option>
-                    </select>
+                        <select
+                          value={lengthBeforeUnit}
+                          onChange={(e) =>
+                            setLengthBeforeUnit(e.target.value as "ms" | "s" | "min")
+                          }
+                          className="caption-duration-select"
+                        >
+                          <option value="ms">ms</option>
+                          <option value="s">s</option>
+                          <option value="min">min</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="muted caption-duration-label">After marker</p>
+                      <div className="caption-duration-row">
+                        <input
+                          type="number"
+                          min={0}
+                          value={lengthAfterValue}
+                          onChange={(e) =>
+                            setLengthAfterValue(Math.max(0, Number(e.target.value)))
+                          }
+                          className="caption-duration-input"
+                        />
+
+                        <select
+                          value={lengthAfterUnit}
+                          onChange={(e) =>
+                            setLengthAfterUnit(e.target.value as "ms" | "s" | "min")
+                          }
+                          className="caption-duration-select"
+                        >
+                          <option value="ms">ms</option>
+                          <option value="s">s</option>
+                          <option value="min">min</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </>
+            )}
+            
+            {selectedMarker.type === "length" && (
+              <div style={{ marginTop: "10px" }}>
+                <p className="muted caption-duration-label">Edit range relative to marker</p>
+
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <div>
+                    <p className="muted caption-duration-label">Before marker</p>
+                    <div className="caption-duration-row">
+                      <input
+                        type="number"
+                        min={0}
+                        value={lengthBeforeValue}
+                        onChange={(e) => setLengthBeforeValue(Math.max(0, Number(e.target.value)))}
+                        className="caption-duration-input"
+                      />
+
+                      <select
+                        value={lengthBeforeUnit}
+                        onChange={(e) => setLengthBeforeUnit(e.target.value as "ms" | "s" | "min")}
+                        className="caption-duration-select"
+                      >
+                        <option value="ms">ms</option>
+                        <option value="s">s</option>
+                        <option value="min">min</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="muted caption-duration-label">After marker</p>
+                    <div className="caption-duration-row">
+                      <input
+                        type="number"
+                        min={0}
+                        value={lengthAfterValue}
+                        onChange={(e) => setLengthAfterValue(Math.max(0, Number(e.target.value)))}
+                        className="caption-duration-input"
+                      />
+
+                      <select
+                        value={lengthAfterUnit}
+                        onChange={(e) => setLengthAfterUnit(e.target.value as "ms" | "s" | "min")}
+                        className="caption-duration-select"
+                      >
+                        <option value="ms">ms</option>
+                        <option value="s">s</option>
+                        <option value="min">min</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
 
             <div className="action-stack">
               {selectedMarker.type === "length" && (
                 <>
-                  <button className="primary-btn" onClick={() => resolveSelected("resolved", "tighten clip")}>Tighten clip</button>
-                  <button className="ghost-btn" onClick={() => resolveSelected("resolved", "extend clip")}>Extend clip</button>
+                  {selectedMarker.type === "length" && (
+                    <>
+                      <button className="primary-btn" onClick={() => applyLengthAction("cut")}>
+                        Cut segment
+                      </button>
+                      <button className="ghost-btn" onClick={() => applyLengthAction("speedUp")}>
+                        Speed up segment
+                      </button>
+                      <button className="ghost-btn" onClick={() => applyLengthAction("slowDown")}>
+                        Slow down segment
+                      </button>
+                    </>
+                  )}
                 </>
               )}
 
               {selectedMarker.type === "audioVisual" && (
                 <>
-                  <button className="primary-btn" onClick={() => resolveSelected("resolved", "delete segment")}>Delete segment</button>
-                  <button className="ghost-btn" onClick={() => resolveSelected("skipped", "manual edit")}>Manual edit later</button>
+                  <div style={{ marginTop: "10px" }}>
+                    <p className="muted caption-duration-label">
+                      Edit range relative to marker
+                    </p>
+
+                    <div style={{ display: "grid", gap: "10px" }}>
+                      <div>
+                        <p className="muted caption-duration-label">Before marker</p>
+                        <div className="caption-duration-row">
+                          <input
+                            type="number"
+                            min={0}
+                            value={lengthBeforeValue}
+                            onChange={(e) =>
+                              setLengthBeforeValue(Math.max(0, Number(e.target.value)))
+                            }
+                            className="caption-duration-input"
+                          />
+
+                          <select
+                            value={lengthBeforeUnit}
+                            onChange={(e) =>
+                              setLengthBeforeUnit(e.target.value as "ms" | "s" | "min")
+                            }
+                            className="caption-duration-select"
+                          >
+                            <option value="ms">ms</option>
+                            <option value="s">s</option>
+                            <option value="min">min</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="muted caption-duration-label">After marker</p>
+                        <div className="caption-duration-row">
+                          <input
+                            type="number"
+                            min={0}
+                            value={lengthAfterValue}
+                            onChange={(e) =>
+                              setLengthAfterValue(Math.max(0, Number(e.target.value)))
+                            }
+                            className="caption-duration-input"
+                          />
+
+                          <select
+                            value={lengthAfterUnit}
+                            onChange={(e) =>
+                              setLengthAfterUnit(e.target.value as "ms" | "s" | "min")
+                            }
+                            className="caption-duration-select"
+                          >
+                            <option value="ms">ms</option>
+                            <option value="s">s</option>
+                            <option value="min">min</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    className="primary-btn"
+                    onClick={() => applyAudioAction("mute")}
+                  >
+                    Mute audio
+                  </button>
+
+                  <button
+                    className="ghost-btn"
+                    onClick={() => applyAudioAction("increase")}
+                  >
+                    Increase volume
+                  </button>
+
+                  <button
+                    className="ghost-btn"
+                    onClick={() => applyAudioAction("decrease")}
+                  >
+                    Decrease volume
+                  </button>
                 </>
               )}
 
