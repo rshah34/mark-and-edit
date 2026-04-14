@@ -32,4 +32,5 @@ export interface Marker {
   speedFactor?: number;
 
   audioAction?: AudioAction;
+  audioDelta?: number;
 }

@@ -70,6 +70,8 @@ export function PrototypePage() {
   const [lengthBeforeUnit, setLengthBeforeUnit] = useState<"ms" | "s" | "min">("s");
   const [lengthAfterValue, setLengthAfterValue] = useState(2);
   const [lengthAfterUnit, setLengthAfterUnit] = useState<"ms" | "s" | "min">("s");
+  const [audioDeltaLevels, setAudioDeltaLevels] = useState(3);
+  const [pendingAudioAction, setPendingAudioAction] = useState<"increase" | "decrease" | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -186,6 +188,27 @@ export function PrototypePage() {
       setLengthAfterValue(afterSec);
       setLengthAfterUnit("s");
     }
+
+    if (selectedMarker.type === "audioVisual") {
+      const beforeSec =
+        selectedMarker.startTimeSec !== undefined
+          ? Math.max(0, selectedMarker.tSec - selectedMarker.startTimeSec)
+          : 2;
+
+      const afterSec =
+        selectedMarker.endTimeSec !== undefined
+          ? Math.max(0, selectedMarker.endTimeSec - selectedMarker.tSec)
+          : 2;
+
+      setLengthBeforeValue(beforeSec);
+      setLengthBeforeUnit("s");
+      setLengthAfterValue(afterSec);
+      setLengthAfterUnit("s");
+
+      const delta = selectedMarker.audioDelta ?? 0.3;
+      setAudioDeltaLevels(Math.max(1, Math.min(10, Math.round(delta * 10))));
+    }
+    setPendingAudioAction(null);
   }, [selectedMarker]);
 
   function resetSession() {
@@ -212,6 +235,8 @@ export function PrototypePage() {
     setLengthBeforeUnit("s");
     setLengthAfterValue(2);
     setLengthAfterUnit("s");
+    setAudioDeltaLevels(3);
+    setPendingAudioAction(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -251,11 +276,13 @@ export function PrototypePage() {
       }
 
       if (audioEdit?.audioAction === "increase") {
-        video.volume = Math.min(1, volume + 0.3);
+        const delta = audioEdit.audioDelta ?? 0.3;
+        video.volume = Math.min(1, volume + delta);
       }
 
       if (audioEdit?.audioAction === "decrease") {
-        video.volume = Math.max(0, volume - 0.3);
+        const delta = audioEdit.audioDelta ?? 0.3;
+        video.volume = Math.max(0, volume - delta);
       }
     };
 
@@ -365,8 +392,11 @@ export function PrototypePage() {
     const sourceVideo = document.createElement("video");
     sourceVideo.src = videoUrl;
     sourceVideo.preload = "auto";
-    sourceVideo.muted = true;
+    sourceVideo.muted = false;
+    sourceVideo.volume = volume;
     sourceVideo.playsInline = true;
+    let exportAudioContext: AudioContext | null = null;
+    let exportGainNode: GainNode | null = null;
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -385,15 +415,49 @@ export function PrototypePage() {
       }
 
       const stream = canvas.captureStream(30);
-      const mediaCapture = (sourceVideo as HTMLVideoElement & {
-        captureStream?: () => MediaStream;
-        mozCaptureStream?: () => MediaStream;
-      });
-      const audioStream =
-        mediaCapture.captureStream?.() ?? mediaCapture.mozCaptureStream?.();
-      if (audioStream) {
-        for (const audioTrack of audioStream.getAudioTracks()) {
-          stream.addTrack(audioTrack);
+      let addedAudioTrack = false;
+
+      const audioWindow = window as Window & {
+        webkitAudioContext?: typeof AudioContext;
+      };
+      const AudioContextCtor = window.AudioContext ?? audioWindow.webkitAudioContext;
+
+      if (AudioContextCtor) {
+        try {
+          exportAudioContext = new AudioContextCtor();
+          const sourceNode = exportAudioContext.createMediaElementSource(sourceVideo);
+          exportGainNode = exportAudioContext.createGain();
+          const destinationNode = exportAudioContext.createMediaStreamDestination();
+          sourceNode.connect(exportGainNode);
+          exportGainNode.connect(destinationNode);
+          exportGainNode.gain.value = volume;
+
+          for (const audioTrack of destinationNode.stream.getAudioTracks()) {
+            stream.addTrack(audioTrack);
+            addedAudioTrack = true;
+          }
+
+          if (exportAudioContext.state === "suspended") {
+            await exportAudioContext.resume();
+          }
+        } catch {
+          exportAudioContext = null;
+          exportGainNode = null;
+          addedAudioTrack = false;
+        }
+      }
+
+      if (!addedAudioTrack) {
+        const mediaCapture = (sourceVideo as HTMLVideoElement & {
+          captureStream?: () => MediaStream;
+          mozCaptureStream?: () => MediaStream;
+        });
+        const audioStream =
+          mediaCapture.captureStream?.() ?? mediaCapture.mozCaptureStream?.();
+        if (audioStream) {
+          for (const audioTrack of audioStream.getAudioTracks()) {
+            stream.addTrack(audioTrack);
+          }
         }
       }
 
@@ -414,12 +478,32 @@ export function PrototypePage() {
 
       await new Promise<void>((resolve) => {
         let rafId = 0;
+        let isJumpSeeking = false;
 
         const drawFrame = () => {
+          if (sourceVideo.ended || sourceVideo.currentTime >= Math.max(0, sourceVideo.duration - 0.01)) {
+            resolve();
+            return;
+          }
+
+          if (sourceVideo.seeking || isJumpSeeking) {
+            rafId = window.requestAnimationFrame(drawFrame);
+            return;
+          }
+
           const activeEdit = getActiveLengthEdit(sourceVideo.currentTime);
 
           if (activeEdit?.lengthAction === "cut" && activeEdit.endTimeSec !== undefined) {
-            sourceVideo.currentTime = activeEdit.endTimeSec;
+            const jumpTarget = Math.min(activeEdit.endTimeSec, sourceVideo.duration || activeEdit.endTimeSec);
+            if (Math.abs(sourceVideo.currentTime - jumpTarget) > 0.01) {
+              isJumpSeeking = true;
+              sourceVideo.currentTime = jumpTarget;
+              const clearJump = () => {
+                isJumpSeeking = false;
+                sourceVideo.removeEventListener("seeked", clearJump);
+              };
+              sourceVideo.addEventListener("seeked", clearJump);
+            }
             rafId = window.requestAnimationFrame(drawFrame);
             return;
           }
@@ -431,6 +515,28 @@ export function PrototypePage() {
             sourceVideo.playbackRate = activeEdit.speedFactor ?? 1;
           } else {
             sourceVideo.playbackRate = 1;
+          }
+
+          const activeAudioEdit = getActiveAudioEdit(sourceVideo.currentTime);
+          let outputVolume = volume;
+          if (activeAudioEdit?.audioAction === "mute") {
+            outputVolume = 0;
+          }
+          if (activeAudioEdit?.audioAction === "increase") {
+            const delta = activeAudioEdit.audioDelta ?? 0.3;
+            outputVolume = Math.min(1, volume + delta);
+          }
+          if (activeAudioEdit?.audioAction === "decrease") {
+            const delta = activeAudioEdit.audioDelta ?? 0.3;
+            outputVolume = Math.max(0, volume - delta);
+          }
+          if (exportGainNode && exportAudioContext) {
+            exportGainNode.gain.setValueAtTime(
+              outputVolume,
+              exportAudioContext.currentTime
+            );
+          } else {
+            sourceVideo.volume = outputVolume;
           }
 
           ctx.drawImage(sourceVideo, 0, 0, width, height);
@@ -499,6 +605,9 @@ export function PrototypePage() {
       sourceVideo.pause();
       sourceVideo.removeAttribute("src");
       sourceVideo.load();
+      if (exportAudioContext) {
+        void exportAudioContext.close();
+      }
       setIsExporting(false);
     }
   }
@@ -650,7 +759,7 @@ export function PrototypePage() {
     setErrorText(null);
   }
 
-  function applyAudioAction(action: AudioAction) {
+  function applyAudioAction(action: AudioAction, levels?: number) {
     if (!selectedMarker || selectedMarker.type !== "audioVisual") return;
 
     const beforeSec = Math.max(0, toSeconds(lengthBeforeValue, lengthBeforeUnit));
@@ -664,8 +773,13 @@ export function PrototypePage() {
       return;
     }
 
-    setMarkers((prev) =>
-      prev.map((m) =>
+    const deltaLevels = Math.max(1, Math.min(10, levels ?? audioDeltaLevels));
+    const delta = Math.max(0, Math.min(1, deltaLevels / 10));
+
+    let nextOpenId: string | null = null;
+
+    setMarkers((prev) => {
+      const updated = prev.map((m) =>
         m.id === selectedMarker.id
           ? {
               ...m,
@@ -673,14 +787,27 @@ export function PrototypePage() {
               audioAction: action,
               startTimeSec,
               endTimeSec,
+              audioDelta: delta,
             }
           : m
-      )
+      );
+
+      const nextOpen = updated.find(
+        (m) => m.id !== selectedMarker.id && m.status === "open"
+      );
+      nextOpenId = nextOpen ? nextOpen.id : null;
+      return updated;
+    });
+
+    setSelectedMarkerId(nextOpenId);
+    setPendingAudioAction(null);
+
+    const deltaLabel = Math.round(delta * 10);
+    setFeedback(
+      action === "mute"
+        ? "Audio marker resolved: mute"
+        : `Audio marker resolved: ${action} by ${deltaLabel} level${deltaLabel === 1 ? "" : "s"}`
     );
-
-    setSelectedMarkerId(null);
-
-    setFeedback(`Audio marker resolved: ${action}`);
     setErrorText(null);
   }
 
@@ -770,7 +897,7 @@ export function PrototypePage() {
             </div>
           ))}
         </div>
-        <p className="muted">Flow: watch - mark - edit markers - final playback.</p>
+        <p className="muted">Flow: Watching -&gt; Marking -&gt; Editing -&gt; Final playback.</p>
 
         <label className="upload-btn">
           <Upload size={16} />
@@ -1210,17 +1337,59 @@ export function PrototypePage() {
 
                   <button
                     className="ghost-btn"
-                    onClick={() => applyAudioAction("increase")}
+                    onClick={() => {
+                      setPendingAudioAction("increase");
+                      setErrorText(null);
+                    }}
                   >
                     Increase volume
                   </button>
 
                   <button
                     className="ghost-btn"
-                    onClick={() => applyAudioAction("decrease")}
+                    onClick={() => {
+                      setPendingAudioAction("decrease");
+                      setErrorText(null);
+                    }}
                   >
                     Decrease volume
                   </button>
+
+                  {pendingAudioAction && (
+                    <div style={{ marginTop: "10px" }}>
+                      <p className="muted caption-duration-label">
+                        {pendingAudioAction === "increase" ? "Increase" : "Decrease"} by how many levels? (1-10)
+                      </p>
+                      <div className="caption-duration-row">
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={audioDeltaLevels}
+                          onChange={(e) =>
+                            setAudioDeltaLevels(Math.max(1, Math.min(10, Number(e.target.value))))
+                          }
+                          className="caption-duration-input"
+                        />
+                        <button
+                          className="primary-btn"
+                          onClick={() => applyAudioAction(pendingAudioAction, audioDeltaLevels)}
+                        >
+                          Apply
+                        </button>
+                        <button
+                          className="ghost-btn"
+                          onClick={() => setPendingAudioAction(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      <p className="muted caption-duration-label">
+                        1 level = 10% of full volume.
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
 

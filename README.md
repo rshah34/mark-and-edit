@@ -40,13 +40,13 @@ After starting the dev server, open the local URL shown in the terminal.
 ### 4) Real-Time Marker Creation
 1. During playback, create multiple markers with:
    - tap / `L` for length
-   - shift+tap / `X` for audio-visual
+   - shift + tap / `X` for audio
    - `C` for caption
 2. See marker count increasing in the status row.
 
 ### 5) Timeline Generation + Visual Markers
 1. Continue playback while marking.
-2. See timeline markers appearing at relative positions.
+2. See open timeline markers appearing at relative positions.
 3. See color/icon differences by marker type.
 
 ### 6) Marker Interaction + Navigation
@@ -57,10 +57,11 @@ After starting the dev server, open the local URL shown in the terminal.
 ### 7) Basic Edit Actions Per Marker
 1. Select a marker from timeline.
 2. Use actions:
-   - length: tighten/extend/keep
-   - audio-visual: delete/manual/keep
-   - caption: enter text + duration + save
-3. Show open/resolved/skipped counts updating and marker state changes.
+   - length: cut segment / speed up segment / slow down segment
+   - audio: mute audio, or choose `increase`/`decrease`, then enter `1-10` levels and click `Apply`
+   - caption: enter text + display range + save
+3. Use `Keep as-is (skip)` when needed.
+4. Show open/resolved/skipped counts updating and marker state changes.
 
 ### 8) UI State Transitions
 1. Show mode transitions in the top status row:

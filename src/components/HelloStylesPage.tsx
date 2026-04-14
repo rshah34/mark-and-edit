@@ -24,7 +24,7 @@ export function HelloStylesPage() {
 
       <div className="icon-row">
         <span className="icon-pill"><Circle size={16} /> Length Edit</span>
-        <span className="icon-pill"><Scissors size={16} /> Audio/Visual Edit</span>
+        <span className="icon-pill"><Scissors size={16} /> Audio Edit</span>
         <span className="icon-pill"><Type size={16} /> Caption</span>
       </div>
 
