@@ -45,7 +45,7 @@ function markerClass(type: MarkerType): string {
 
 function markerLabel(type: MarkerType): string {
   if (type === "length") return "Length";
-  if (type === "audioVisual") return "Audio/Visual";
+  if (type === "audioVisual") return "Audio";
   return "Caption";
 }
 
