@@ -1051,7 +1051,7 @@ export function PrototypePage() {
           <div className="timeline card">
             <div className="timeline-head">
               <h3>Timeline</h3>
-              <span>{timelineMarkers.length} open markers</span>
+              <span>{openCount} open markers</span>
             </div>
             <div className="timeline-rail">
               {getCutRegions().map((cut, i) => {
