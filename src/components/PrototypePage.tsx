@@ -82,7 +82,7 @@ export function PrototypePage() {
   );
   const showTimeline = markers.length > 0 && ["marking", "editing", "finalPlayback"].includes(mode);
   const showTimelineActions = mode === "editing" || mode === "finalPlayback";
-  const timelineMarkers = markers.filter((m) => m.status === "open");
+  const timelineMarkers = markers;
 
   const openCount = markers.filter((m) => m.status === "open").length;
   const resolvedCount = markers.filter((m) => m.status === "resolved").length;
@@ -716,8 +716,6 @@ export function PrototypePage() {
       return;
     }
 
-    let nextOpenId: string | null = null;
-
     setMarkers((prev) => {
       const updated = prev.map((m) =>
         m.id === selectedMarker.id
@@ -741,12 +739,10 @@ export function PrototypePage() {
         (m) => m.id !== selectedMarker.id && m.status === "open"
       );
 
-      nextOpenId = nextOpen ? nextOpen.id : null;
+      setSelectedMarkerId(nextOpen ? nextOpen.id : null);
 
       return updated;
     });
-
-    setSelectedMarkerId(nextOpenId);
 
     setFeedback(
       action === "cut"
@@ -776,8 +772,6 @@ export function PrototypePage() {
     const deltaLevels = Math.max(1, Math.min(10, levels ?? audioDeltaLevels));
     const delta = Math.max(0, Math.min(1, deltaLevels / 10));
 
-    let nextOpenId: string | null = null;
-
     setMarkers((prev) => {
       const updated = prev.map((m) =>
         m.id === selectedMarker.id
@@ -795,11 +789,13 @@ export function PrototypePage() {
       const nextOpen = updated.find(
         (m) => m.id !== selectedMarker.id && m.status === "open"
       );
-      nextOpenId = nextOpen ? nextOpen.id : null;
+
+      // ✅ CRITICAL: set inside updater
+      setSelectedMarkerId(nextOpen ? nextOpen.id : null);
+
       return updated;
     });
 
-    setSelectedMarkerId(nextOpenId);
     setPendingAudioAction(null);
 
     const deltaLabel = Math.round(delta * 10);
@@ -808,25 +804,36 @@ export function PrototypePage() {
         ? "Audio marker resolved: mute"
         : `Audio marker resolved: ${action} by ${deltaLabel} level${deltaLabel === 1 ? "" : "s"}`
     );
+
     setErrorText(null);
   }
 
   function resolveSelected(status: "resolved" | "skipped", note?: string) {
     if (!selectedMarker) return;
 
-    if (selectedMarker.type === "caption" && status === "resolved" && !captionInput.trim()) {
+    if (
+      selectedMarker.type === "caption" &&
+      status === "resolved" &&
+      !captionInput.trim()
+    ) {
       setErrorText("Caption text is required before saving.");
       return;
     }
 
-    setMarkers((prev) =>
-      prev.map((m) => {
+    setMarkers((prev) => {
+      const updated = prev.map((m) => {
         if (m.id !== selectedMarker.id) return m;
 
         // ===== CAPTION RANGE LOGIC =====
         if (m.type === "caption" && status === "resolved") {
-          const beforeSec = Math.max(0, toSeconds(lengthBeforeValue, lengthBeforeUnit));
-          const afterSec = Math.max(0, toSeconds(lengthAfterValue, lengthAfterUnit));
+          const beforeSec = Math.max(
+            0,
+            toSeconds(lengthBeforeValue, lengthBeforeUnit)
+          );
+          const afterSec = Math.max(
+            0,
+            toSeconds(lengthAfterValue, lengthAfterUnit)
+          );
 
           const startTimeSec = Math.max(0, m.tSec - beforeSec);
           const endTimeSec = m.tSec + afterSec;
@@ -840,7 +847,6 @@ export function PrototypePage() {
           };
         }
 
-        // ===== DEFAULT (non-caption) =====
         return {
           ...m,
           status,
@@ -850,15 +856,22 @@ export function PrototypePage() {
           endTimeSec: status === "skipped" ? undefined : m.endTimeSec,
           speedFactor: status === "skipped" ? undefined : m.speedFactor,
         };
-      })
-    );
+      });
+
+      // ✅ compute next open marker
+      const nextOpen = updated.find(
+        (m) => m.id !== selectedMarker.id && m.status === "open"
+      );
+
+      // ✅ set it HERE (inside updater)
+      setSelectedMarkerId(nextOpen ? nextOpen.id : null);
+
+      return updated;
+    });
 
     setFeedback(status === "resolved" ? "Marker resolved" : "Marker skipped");
     setCaptionInput("");
     setErrorText(null);
-
-    const nextOpen = markers.find((m) => m.id !== selectedMarker.id && m.status === "open");
-    setSelectedMarkerId(nextOpen ? nextOpen.id : null);
   }
 
   function startFinalPlayback() {
@@ -1066,19 +1079,22 @@ export function PrototypePage() {
                 );
               })}
               {timelineMarkers.map((marker) => {
-                const left = duration > 0 ? (marker.tSec / duration) * 100 : 0;
-                const classes = ["timeline-marker", markerClass(marker.type)];
-                if (marker.status !== "open") classes.push("is-dim");
-                if (selectedMarkerId === marker.id) classes.push("is-selected");
+                const isDim = marker.status !== "open";
+
+                const classes = [
+                  "timeline-marker",
+                  markerClass(marker.type),
+                  isDim ? "is-dim" : "",
+                  selectedMarkerId === marker.id ? "is-selected" : "",
+                ];
 
                 return (
                   <button
                     key={marker.id}
                     type="button"
                     className={classes.join(" ")}
-                    style={{ left: left + "%" }}
+                    style={{ left: `${(marker.tSec / duration) * 100}%` }}
                     onClick={() => onSelectMarker(marker)}
-                    title={markerLabel(marker.type) + " @ " + formatTime(marker.tSec)}
                   />
                 );
               })}
