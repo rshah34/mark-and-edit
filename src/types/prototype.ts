@@ -5,6 +5,7 @@ export type MarkerType = "length" | "audioVisual" | "caption";
 export type MarkerStatus = "open" | "resolved" | "skipped";
 
 export type AudioAction = "mute" | "increase" | "decrease";
+export type CaptionPosition = "top" | "middle" | "bottom";
 
 export type UIMode =
   | "landing"
@@ -33,4 +34,6 @@ export interface Marker {
 
   audioAction?: AudioAction;
   audioDelta?: number;
+  speedLevels?: number;
+  captionPosition?: CaptionPosition;
 }

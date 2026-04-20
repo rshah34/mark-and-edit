@@ -35,12 +35,12 @@ After starting the dev server, open the local URL shown in the terminal.
 1. Go to `/prototype`.
 2. Click `Upload Clip` and choose a local video file.
 3. Press play, pause, and scrub with the timeline slider.
-4. While playing, tap on the video and press `C`, `X`, or `L` to show interaction does not interrupt playback.
+4. While playing, press `C`, `X`, and `L` to show interaction does not interrupt playback.
 
 ### 4) Real-Time Marker Creation
 1. During playback, create multiple markers with:
-   - tap / `L` for length
-   - shift + tap / `X` for audio
+   - `L` for length
+   - `X` for audio
    - `C` for caption
 2. See marker count increasing in the status row.
 
@@ -57,10 +57,10 @@ After starting the dev server, open the local URL shown in the terminal.
 ### 7) Basic Edit Actions Per Marker
 1. Select a marker from timeline.
 2. Use actions:
-   - length: cut segment / speed up segment / slow down segment
+   - length: cut segment, or choose `speed up`/`slow down`, then enter `1-5` levels and click `Apply`
    - audio: mute audio, or choose `increase`/`decrease`, then enter `1-10` levels and click `Apply`
-   - caption: enter text + display range + save
-3. Use `Keep as-is (skip)` when needed.
+   - caption: enter text + display range + position (top/middle/bottom) + save
+3. Use `Keep as-is (skip)`, `Delete marker`, and `Undo Last Marker` when needed.
 4. Show open/resolved/skipped counts updating and marker state changes.
 
 ### 8) UI State Transitions

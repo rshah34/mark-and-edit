@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Circle,
@@ -14,17 +14,17 @@ import {
   X,
 } from "lucide-react";
 import { formatTime } from "../lib/time";
-import { AudioAction, LengthAction, Marker, MarkerStatus, MarkerType, UIMode } from "../types/prototype";
+import { AudioAction, CaptionPosition, LengthAction, Marker, MarkerStatus, MarkerType, UIMode } from "../types/prototype";
 
 const guide = [
   {
-    key: "Tap / L",
+    key: "L",
     detail: "Length edit marker",
     icon: <Circle size={14} />,
     className: "is-length",
   },
   {
-    key: "Shift + Tap / X",
+    key: "X",
     detail: "Audio edit marker",
     icon: <Scissors size={14} />,
     className: "is-edit",
@@ -47,6 +47,33 @@ function markerLabel(type: MarkerType): string {
   if (type === "length") return "Length";
   if (type === "audioVisual") return "Audio";
   return "Caption";
+}
+
+function captionOverlayStyle(position: CaptionPosition) {
+  const base = {
+    position: "absolute" as const,
+    width: "100%",
+    textAlign: "center" as const,
+    color: "white",
+    fontSize: "20px",
+    fontWeight: "500",
+    textShadow: "0px 2px 8px rgba(0,0,0,0.8)",
+  };
+  if (position === "top") return { ...base, top: "40px" };
+  if (position === "middle") return { ...base, top: "50%", transform: "translateY(-50%)" };
+  return { ...base, bottom: "40px" };
+}
+
+function captionYForExport(position: CaptionPosition, height: number): number {
+  if (position === "top") return Math.max(40, Math.round(height * 0.1));
+  if (position === "middle") return Math.round(height * 0.5);
+  return height - Math.max(40, Math.round(height * 0.08));
+}
+
+function speedFactorFromLevels(action: "speedUp" | "slowDown", levels: number): number {
+  const clamped = Math.max(1, Math.min(5, levels));
+  if (action === "speedUp") return 1 + clamped * 0.25;
+  return 1 / (1 + clamped * 0.25);
 }
 
 export function PrototypePage() {
@@ -72,6 +99,9 @@ export function PrototypePage() {
   const [lengthAfterUnit, setLengthAfterUnit] = useState<"ms" | "s" | "min">("s");
   const [audioDeltaLevels, setAudioDeltaLevels] = useState(3);
   const [pendingAudioAction, setPendingAudioAction] = useState<"increase" | "decrease" | null>(null);
+  const [speedDeltaLevels, setSpeedDeltaLevels] = useState(2);
+  const [pendingSpeedAction, setPendingSpeedAction] = useState<"speedUp" | "slowDown" | null>(null);
+  const [captionPosition, setCaptionPosition] = useState<CaptionPosition>("bottom");
   const [errorText, setErrorText] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -168,10 +198,12 @@ export function PrototypePage() {
       setLengthBeforeUnit("s");
       setLengthAfterValue(afterSec);
       setLengthAfterUnit("s");
+      setSpeedDeltaLevels(Math.max(1, Math.min(5, selectedMarker.speedLevels ?? 2)));
     }
 
     if (selectedMarker.type === "caption") {
       setCaptionInput(selectedMarker.note ?? "");
+      setCaptionPosition(selectedMarker.captionPosition ?? "bottom");
 
       const beforeSec =
         selectedMarker.startTimeSec !== undefined
@@ -209,6 +241,7 @@ export function PrototypePage() {
       setAudioDeltaLevels(Math.max(1, Math.min(10, Math.round(delta * 10))));
     }
     setPendingAudioAction(null);
+    setPendingSpeedAction(null);
   }, [selectedMarker]);
 
   function resetSession() {
@@ -236,7 +269,10 @@ export function PrototypePage() {
     setLengthAfterValue(2);
     setLengthAfterUnit("s");
     setAudioDeltaLevels(3);
+    setSpeedDeltaLevels(2);
+    setCaptionPosition("bottom");
     setPendingAudioAction(null);
+    setPendingSpeedAction(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -291,7 +327,7 @@ export function PrototypePage() {
     return () => {
       video.removeEventListener("timeupdate", applyEdits);
     };
-  }, [markers]);
+  }, [markers, volume]);
 
   function onUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -559,7 +595,7 @@ export function PrototypePage() {
             ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
             ctx.lineWidth = 5;
             const x = width / 2;
-            const y = height - Math.max(40, Math.round(height * 0.08));
+            const y = captionYForExport(caption.captionPosition ?? "bottom", height);
             ctx.strokeText(caption.note, x, y);
             ctx.fillText(caption.note, x, y);
             ctx.restore();
@@ -639,6 +675,39 @@ export function PrototypePage() {
     if (mode === "watching") setMode("marking");
   }
 
+  function undoLastMarker() {
+    if (markers.length === 0) {
+      setErrorText("No marker to undo.");
+      return;
+    }
+    const removed = markers[markers.length - 1];
+    const remaining = markers.slice(0, -1);
+    setMarkers(remaining);
+    if (selectedMarkerId === removed.id) {
+      const next = remaining.find((m) => m.status === "open") ?? remaining[remaining.length - 1] ?? null;
+      setSelectedMarkerId(next ? next.id : null);
+    }
+    setPendingAudioAction(null);
+    setPendingSpeedAction(null);
+    setFeedback("Last marker removed.");
+    setErrorText(null);
+  }
+
+  function deleteSelectedMarker() {
+    if (!selectedMarker) {
+      setErrorText("Select a marker to delete.");
+      return;
+    }
+    const remaining = markers.filter((m) => m.id !== selectedMarker.id);
+    setMarkers(remaining);
+    const next = remaining.find((m) => m.status === "open") ?? remaining[remaining.length - 1] ?? null;
+    setSelectedMarkerId(next ? next.id : null);
+    setPendingAudioAction(null);
+    setPendingSpeedAction(null);
+    setFeedback("Marker deleted.");
+    setErrorText(null);
+  }
+
   function togglePlayback() {
     const video = videoRef.current;
     if (!video) {
@@ -663,15 +732,6 @@ export function PrototypePage() {
       .catch(() => {
         setErrorText("Playback could not start. Use an mp4 or mov clip.");
       });
-  }
-
-  function onVideoTap(event: MouseEvent<HTMLDivElement>) {
-    if (!isPlaying || !videoUrl) return;
-    if (event.shiftKey) {
-      addMarker("audioVisual");
-      return;
-    }
-    addMarker("length");
   }
 
   function onSelectMarker(marker: Marker) {
@@ -702,7 +762,7 @@ export function PrototypePage() {
     return value;
   }
 
-  function applyLengthAction(action: LengthAction) {
+  function applyLengthAction(action: LengthAction, levels?: number) {
     if (!selectedMarker || selectedMarker.type !== "length") return;
 
     const beforeSec = Math.max(0, toSeconds(lengthBeforeValue, lengthBeforeUnit));
@@ -716,6 +776,15 @@ export function PrototypePage() {
       return;
     }
 
+    const speedLevels =
+      action === "speedUp" || action === "slowDown"
+        ? Math.max(1, Math.min(5, levels ?? speedDeltaLevels))
+        : undefined;
+    const speedFactor =
+      action === "speedUp" || action === "slowDown"
+        ? speedFactorFromLevels(action, speedLevels!)
+        : undefined;
+
     setMarkers((prev) => {
       const updated = prev.map((m) =>
         m.id === selectedMarker.id
@@ -725,12 +794,8 @@ export function PrototypePage() {
               lengthAction: action,
               startTimeSec,
               endTimeSec,
-              speedFactor:
-                action === "speedUp"
-                  ? 2
-                  : action === "slowDown"
-                  ? 0.5
-                  : undefined,
+              speedFactor,
+              speedLevels,
             }
           : m
       );
@@ -744,12 +809,13 @@ export function PrototypePage() {
       return updated;
     });
 
+    setPendingSpeedAction(null);
     setFeedback(
       action === "cut"
         ? "Length marker resolved: cut"
         : action === "speedUp"
-        ? "Length marker resolved: speed up"
-        : "Length marker resolved: slow down"
+        ? `Length marker resolved: speed up (${(speedFactor ?? 1).toFixed(2)}x)`
+        : `Length marker resolved: slow down (${(speedFactor ?? 1).toFixed(2)}x)`
     );
 
     setErrorText(null);
@@ -844,6 +910,7 @@ export function PrototypePage() {
             note: captionInput.trim(),
             startTimeSec,
             endTimeSec,
+            captionPosition,
           };
         }
 
@@ -924,6 +991,7 @@ export function PrototypePage() {
           />
         </label>
 
+        <button className="ghost-btn" onClick={undoLastMarker}>Undo Last Marker</button>
         <button className="ghost-btn" onClick={resetSession}>Exit to landing</button>
       </aside>
 
@@ -945,7 +1013,7 @@ export function PrototypePage() {
           </div>
         )}
 
-        <div className="player-wrap card" onClick={onVideoTap}>
+        <div className="player-wrap card">
           {videoUrl ? (
             <div style={{ position: "relative" }}>
             <video
@@ -979,16 +1047,7 @@ export function PrototypePage() {
 
             {activeCaption && (
               <div
-                style={{
-                  position: "absolute",
-                  bottom: "40px",
-                  width: "100%",
-                  textAlign: "center",
-                  color: "white",
-                  fontSize: "20px",
-                  fontWeight: "500",
-                  textShadow: "0px 2px 8px rgba(0,0,0,0.8)",
-                }}
+                style={captionOverlayStyle(activeCaption.captionPosition ?? "bottom")}
               >
                 {activeCaption.note}
               </div>
@@ -998,11 +1057,11 @@ export function PrototypePage() {
             <div className="video-placeholder">
               <Play size={30} />
               <p>Upload a clip to begin</p>
-              <p className="muted">Use taps and keypresses while the video is playing.</p>
+              <p className="muted">Use keyboard shortcuts while the video is playing.</p>
             </div>
           )}
 
-          {isPlaying && <span className="tap-hint">Tap to mark | <Keyboard size={14} /> C / X / L</span>}
+          {isPlaying && <span className="tap-hint">Press keys to mark | <Keyboard size={14} /> C / X / L</span>}
         </div>
 
         <div className="controls card">
@@ -1204,6 +1263,19 @@ export function PrototypePage() {
                     </div>
                   </div>
                 </div>
+
+                <div style={{ marginTop: "10px" }}>
+                  <p className="muted caption-duration-label">Caption position</p>
+                  <select
+                    value={captionPosition}
+                    onChange={(e) => setCaptionPosition(e.target.value as CaptionPosition)}
+                    className="caption-duration-select"
+                  >
+                    <option value="top">Top</option>
+                    <option value="middle">Middle</option>
+                    <option value="bottom">Bottom</option>
+                  </select>
+                </div>
               </>
             )}
             
@@ -1269,12 +1341,60 @@ export function PrototypePage() {
                       <button className="primary-btn" onClick={() => applyLengthAction("cut")}>
                         Cut segment
                       </button>
-                      <button className="ghost-btn" onClick={() => applyLengthAction("speedUp")}>
+                      <button
+                        className="ghost-btn"
+                        onClick={() => {
+                          setPendingSpeedAction("speedUp");
+                          setErrorText(null);
+                        }}
+                      >
                         Speed up segment
                       </button>
-                      <button className="ghost-btn" onClick={() => applyLengthAction("slowDown")}>
+                      <button
+                        className="ghost-btn"
+                        onClick={() => {
+                          setPendingSpeedAction("slowDown");
+                          setErrorText(null);
+                        }}
+                      >
                         Slow down segment
                       </button>
+
+                      {pendingSpeedAction && (
+                        <div style={{ marginTop: "10px" }}>
+                          <p className="muted caption-duration-label">
+                            {pendingSpeedAction === "speedUp" ? "Speed up" : "Slow down"} by how many levels? (1-5)
+                          </p>
+                          <div className="caption-duration-row">
+                            <input
+                              type="number"
+                              min={1}
+                              max={5}
+                              step={1}
+                              value={speedDeltaLevels}
+                              onChange={(e) =>
+                                setSpeedDeltaLevels(Math.max(1, Math.min(5, Number(e.target.value))))
+                              }
+                              className="caption-duration-input"
+                            />
+                            <button
+                              className="primary-btn"
+                              onClick={() => applyLengthAction(pendingSpeedAction, speedDeltaLevels)}
+                            >
+                              Apply
+                            </button>
+                            <button
+                              className="ghost-btn"
+                              onClick={() => setPendingSpeedAction(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          <p className="muted caption-duration-label">
+                            Resulting speed: {speedFactorFromLevels(pendingSpeedAction, speedDeltaLevels).toFixed(2)}x
+                          </p>
+                        </div>
+                      )}
                     </>
                   )}
                 </>
@@ -1414,6 +1534,7 @@ export function PrototypePage() {
               )}
 
               <button className="ghost-btn" onClick={() => resolveSelected("skipped", "kept")}>Keep as-is (skip)</button>
+              <button className="ghost-btn" onClick={deleteSelectedMarker}>Delete marker</button>
             </div>
           </>
         )}
