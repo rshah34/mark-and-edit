@@ -48,7 +48,7 @@ textarea {
 .app-shell {
   max-width: 1600px;
   margin: 0 auto;
-  padding: 28px;
+  padding: 18px;
 }
 
 .app-header {
@@ -102,7 +102,7 @@ textarea {
   background: linear-gradient(165deg, #1f232b 0%, #1a1d23 100%);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 18px;
+  padding: 14px;
 }
 
 .kicker {
@@ -202,8 +202,8 @@ textarea {
 
 .prototype-grid {
   display: grid;
-  grid-template-columns: 290px 1fr 320px;
-  gap: 16px;
+  grid-template-columns: 270px 1fr 300px;
+  gap: 12px;
 }
 
 .guide h2,
@@ -218,8 +218,8 @@ textarea {
 
 .guide-list {
   display: grid;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .guide-item {
@@ -255,6 +255,38 @@ textarea {
 
 .guide .muted {
   font-size: 15px;
+}
+
+.guide-color-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  background: currentColor;
+}
+
+.legend-dot.is-open {
+  color: #aeb5c0;
+  background: transparent;
+}
+
+.is-resolved {
+  color: var(--marker-resolved);
 }
 
 .is-length {
@@ -320,7 +352,7 @@ textarea {
 
 .editor-column {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .status-row {
@@ -357,7 +389,7 @@ textarea {
 
 .player-wrap {
   position: relative;
-  min-height: 440px;
+  min-height: 340px;
   overflow: hidden;
   background: linear-gradient(165deg, #2e4159 0%, #102339 100%);
 }
@@ -428,7 +460,7 @@ textarea {
 
 .timeline {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .timeline-head {
@@ -445,7 +477,7 @@ textarea {
 
 .timeline-rail {
   position: relative;
-  min-height: 48px;
+  min-height: 44px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #171a1f;
@@ -455,16 +487,18 @@ textarea {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 999px;
   border: 2px solid currentColor;
-  background: #0f1115;
+  background: transparent;
   cursor: pointer;
 }
 
 .timeline-marker.is-dim {
-  opacity: 0.5;
+  opacity: 1;
+  background: currentColor;
+  border-color: currentColor;
 }
 
 .timeline-marker.is-selected {
@@ -561,7 +595,7 @@ textarea {
 
 @media (max-width: 760px) {
   .app-shell {
-    padding: 14px;
+    padding: 12px;
   }
 
   .app-header {

@@ -977,8 +977,28 @@ export function PrototypePage() {
             </div>
           ))}
         </div>
-        <p className="muted">Flow: Watching -&gt; Marking -&gt; Editing -&gt; Final playback.</p>
-
+        <div className="guide-color-legend" aria-label="Marker color legend">
+          <span className="legend-item">
+            <span className="legend-dot is-length" />
+            Length
+          </span>
+          <span className="legend-item">
+            <span className="legend-dot is-edit" />
+            Audio
+          </span>
+          <span className="legend-item">
+            <span className="legend-dot is-caption" />
+            Caption
+          </span>
+          <span className="legend-item">
+            <span className="legend-dot is-open" />
+            Open
+          </span>
+          <span className="legend-item">
+            <span className="legend-dot is-resolved" />
+            Resolved
+          </span>
+        </div>
         <label className="upload-btn">
           <Upload size={16} />
           Upload Clip
