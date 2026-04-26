@@ -1,7 +1,5 @@
 # Mark & Edit
 
-Implementation prototypes for A5.
-
 ## AI Attribution
 
 The majority of this codebase was generated and iteratively edited with help from **ChatGPT (OpenAI)**, then reviewed and adjusted by our team.
