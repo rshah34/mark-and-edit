@@ -76,6 +76,13 @@ function speedFactorFromLevels(action: "speedUp" | "slowDown", levels: number): 
   return 1 / (1 + clamped * 0.25);
 }
 
+function parseSpeedLevelsInput(input: string, fallback: number): number {
+  if (input.trim() === "") return Math.max(1, Math.min(5, fallback));
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed)) return Math.max(1, Math.min(5, fallback));
+  return Math.max(1, Math.min(5, parsed));
+}
+
 export function PrototypePage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pendingSeekStartMs = useRef<number | null>(null);
@@ -100,6 +107,7 @@ export function PrototypePage() {
   const [audioDeltaLevels, setAudioDeltaLevels] = useState(3);
   const [pendingAudioAction, setPendingAudioAction] = useState<"increase" | "decrease" | null>(null);
   const [speedDeltaLevels, setSpeedDeltaLevels] = useState(2);
+  const [speedDeltaLevelsInput, setSpeedDeltaLevelsInput] = useState("2");
   const [pendingSpeedAction, setPendingSpeedAction] = useState<"speedUp" | "slowDown" | null>(null);
   const [captionPosition, setCaptionPosition] = useState<CaptionPosition>("bottom");
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -198,7 +206,9 @@ export function PrototypePage() {
       setLengthBeforeUnit("s");
       setLengthAfterValue(afterSec);
       setLengthAfterUnit("s");
-      setSpeedDeltaLevels(Math.max(1, Math.min(5, selectedMarker.speedLevels ?? 2)));
+      const levels = Math.max(1, Math.min(5, selectedMarker.speedLevels ?? 2));
+      setSpeedDeltaLevels(levels);
+      setSpeedDeltaLevelsInput(String(levels));
     }
 
     if (selectedMarker.type === "caption") {
@@ -270,6 +280,7 @@ export function PrototypePage() {
     setLengthAfterUnit("s");
     setAudioDeltaLevels(3);
     setSpeedDeltaLevels(2);
+    setSpeedDeltaLevelsInput("2");
     setCaptionPosition("bottom");
     setPendingAudioAction(null);
     setPendingSpeedAction(null);
@@ -1289,7 +1300,7 @@ export function PrototypePage() {
                   <select
                     value={captionPosition}
                     onChange={(e) => setCaptionPosition(e.target.value as CaptionPosition)}
-                    className="caption-duration-select"
+                    className="caption-duration-select caption-position-select"
                   >
                     <option value="top">Top</option>
                     <option value="middle">Middle</option>
@@ -1365,6 +1376,7 @@ export function PrototypePage() {
                         className="ghost-btn"
                         onClick={() => {
                           setPendingSpeedAction("speedUp");
+                          setSpeedDeltaLevelsInput(String(speedDeltaLevels));
                           setErrorText(null);
                         }}
                       >
@@ -1374,6 +1386,7 @@ export function PrototypePage() {
                         className="ghost-btn"
                         onClick={() => {
                           setPendingSpeedAction("slowDown");
+                          setSpeedDeltaLevelsInput(String(speedDeltaLevels));
                           setErrorText(null);
                         }}
                       >
@@ -1391,15 +1404,27 @@ export function PrototypePage() {
                               min={1}
                               max={5}
                               step={1}
-                              value={speedDeltaLevels}
-                              onChange={(e) =>
-                                setSpeedDeltaLevels(Math.max(1, Math.min(5, Number(e.target.value))))
-                              }
+                              value={speedDeltaLevelsInput}
+                              onChange={(e) => {
+                                const next = e.target.value;
+                                if (next === "") {
+                                  setSpeedDeltaLevelsInput("");
+                                  return;
+                                }
+                                const clamped = parseSpeedLevelsInput(next, speedDeltaLevels);
+                                setSpeedDeltaLevels(clamped);
+                                setSpeedDeltaLevelsInput(String(clamped));
+                              }}
                               className="caption-duration-input"
                             />
                             <button
                               className="primary-btn"
-                              onClick={() => applyLengthAction(pendingSpeedAction, speedDeltaLevels)}
+                              onClick={() => {
+                                const levels = parseSpeedLevelsInput(speedDeltaLevelsInput, speedDeltaLevels);
+                                setSpeedDeltaLevels(levels);
+                                setSpeedDeltaLevelsInput(String(levels));
+                                applyLengthAction(pendingSpeedAction, levels);
+                              }}
                             >
                               Apply
                             </button>
@@ -1411,7 +1436,10 @@ export function PrototypePage() {
                             </button>
                           </div>
                           <p className="muted caption-duration-label">
-                            Resulting speed: {speedFactorFromLevels(pendingSpeedAction, speedDeltaLevels).toFixed(2)}x
+                            Resulting speed: {speedFactorFromLevels(
+                              pendingSpeedAction,
+                              parseSpeedLevelsInput(speedDeltaLevelsInput, speedDeltaLevels)
+                            ).toFixed(2)}x
                           </p>
                         </div>
                       )}
@@ -1553,7 +1581,6 @@ export function PrototypePage() {
                 <button className="primary-btn" onClick={() => resolveSelected("resolved")}>Save caption</button>
               )}
 
-              <button className="ghost-btn" onClick={() => resolveSelected("skipped", "kept")}>Keep as-is (skip)</button>
               <button className="ghost-btn" onClick={deleteSelectedMarker}>Delete marker</button>
             </div>
           </>
