@@ -522,6 +522,39 @@ textarea {
   display: grid;
   align-content: start;
   gap: 10px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+.action-panel .muted {
+  font-size: 15px;
+}
+
+.action-panel .primary-btn,
+.action-panel .ghost-btn {
+  padding: 9px 11px;
+  font-size: 15px;
+}
+
+.action-panel .caption-input {
+  min-height: 74px;
+  font-size: 15px;
+}
+
+.action-panel .caption-duration-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.action-panel .caption-duration-input {
+  min-width: 0;
+  flex: 1 1 120px;
+}
+
+.action-panel .caption-duration-select {
+  flex: 0 0 auto;
 }
 
 .caption-input {
@@ -598,6 +631,10 @@ textarea {
 
   .controls {
     grid-template-columns: auto auto 1fr auto auto;
+  }
+
+  .action-panel {
+    max-height: none;
   }
 }
 

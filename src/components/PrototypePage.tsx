@@ -83,6 +83,13 @@ function parseSpeedLevelsInput(input: string, fallback: number): number {
   return Math.max(1, Math.min(5, parsed));
 }
 
+function parseRequiredNumber(input: string): number | null {
+  if (input.trim() === "") return null;
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
 export function PrototypePage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pendingSeekStartMs = useRef<number | null>(null);
@@ -96,15 +103,19 @@ export function PrototypePage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(0.6);
   const [markers, setMarkers] = useState<Marker[]>([]);
+  const [markerUndoStack, setMarkerUndoStack] = useState<string[]>([]);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [captionInput, setCaptionInput] = useState("");
   const [captionDuration, setCaptionDuration] = useState(2);
   const [durationUnit, setDurationUnit] = useState<"ms" | "s" | "min">("s");
   const [lengthBeforeValue, setLengthBeforeValue] = useState(2);
+  const [lengthBeforeInput, setLengthBeforeInput] = useState("2");
   const [lengthBeforeUnit, setLengthBeforeUnit] = useState<"ms" | "s" | "min">("s");
   const [lengthAfterValue, setLengthAfterValue] = useState(2);
+  const [lengthAfterInput, setLengthAfterInput] = useState("2");
   const [lengthAfterUnit, setLengthAfterUnit] = useState<"ms" | "s" | "min">("s");
-  const [audioDeltaLevels, setAudioDeltaLevels] = useState(3);
+  const [audioDeltaLevels, setAudioDeltaLevels] = useState(2);
+  const [audioDeltaLevelsInput, setAudioDeltaLevelsInput] = useState("2");
   const [pendingAudioAction, setPendingAudioAction] = useState<"increase" | "decrease" | null>(null);
   const [speedDeltaLevels, setSpeedDeltaLevels] = useState(2);
   const [speedDeltaLevelsInput, setSpeedDeltaLevelsInput] = useState("2");
@@ -203,8 +214,10 @@ export function PrototypePage() {
           : 2;
 
       setLengthBeforeValue(beforeSec);
+      setLengthBeforeInput(String(beforeSec));
       setLengthBeforeUnit("s");
       setLengthAfterValue(afterSec);
+      setLengthAfterInput(String(afterSec));
       setLengthAfterUnit("s");
       const levels = Math.max(1, Math.min(5, selectedMarker.speedLevels ?? 2));
       setSpeedDeltaLevels(levels);
@@ -226,8 +239,10 @@ export function PrototypePage() {
           : 2;
 
       setLengthBeforeValue(beforeSec);
+      setLengthBeforeInput(String(beforeSec));
       setLengthBeforeUnit("s");
       setLengthAfterValue(afterSec);
+      setLengthAfterInput(String(afterSec));
       setLengthAfterUnit("s");
     }
 
@@ -243,12 +258,15 @@ export function PrototypePage() {
           : 2;
 
       setLengthBeforeValue(beforeSec);
+      setLengthBeforeInput(String(beforeSec));
       setLengthBeforeUnit("s");
       setLengthAfterValue(afterSec);
+      setLengthAfterInput(String(afterSec));
       setLengthAfterUnit("s");
 
-      const delta = selectedMarker.audioDelta ?? 0.3;
-      setAudioDeltaLevels(Math.max(1, Math.min(10, Math.round(delta * 10))));
+      const delta = selectedMarker.audioDelta ?? 0.2;
+      setAudioDeltaLevels(Math.max(1, Math.min(5, Math.round(delta * 10))));
+      setAudioDeltaLevelsInput(String(Math.max(1, Math.min(5, Math.round(delta * 10)))));
     }
     setPendingAudioAction(null);
     setPendingSpeedAction(null);
@@ -265,6 +283,7 @@ export function PrototypePage() {
     setDuration(0);
     setCurrentTime(0);
     setMarkers([]);
+    setMarkerUndoStack([]);
     setSelectedMarkerId(null);
     setCaptionInput("");
     setFeedback(null);
@@ -275,10 +294,13 @@ export function PrototypePage() {
       videoRef.current.currentTime = 0;
     }
     setLengthBeforeValue(2);
+    setLengthBeforeInput("2");
     setLengthBeforeUnit("s");
     setLengthAfterValue(2);
+    setLengthAfterInput("2");
     setLengthAfterUnit("s");
-    setAudioDeltaLevels(3);
+    setAudioDeltaLevels(2);
+    setAudioDeltaLevelsInput("2");
     setSpeedDeltaLevels(2);
     setSpeedDeltaLevelsInput("2");
     setCaptionPosition("bottom");
@@ -323,12 +345,12 @@ export function PrototypePage() {
       }
 
       if (audioEdit?.audioAction === "increase") {
-        const delta = audioEdit.audioDelta ?? 0.3;
+        const delta = audioEdit.audioDelta ?? 0.2;
         video.volume = Math.min(1, volume + delta);
       }
 
       if (audioEdit?.audioAction === "decrease") {
-        const delta = audioEdit.audioDelta ?? 0.3;
+        const delta = audioEdit.audioDelta ?? 0.2;
         video.volume = Math.max(0, volume - delta);
       }
     };
@@ -570,11 +592,11 @@ export function PrototypePage() {
             outputVolume = 0;
           }
           if (activeAudioEdit?.audioAction === "increase") {
-            const delta = activeAudioEdit.audioDelta ?? 0.3;
+            const delta = activeAudioEdit.audioDelta ?? 0.2;
             outputVolume = Math.min(1, volume + delta);
           }
           if (activeAudioEdit?.audioAction === "decrease") {
-            const delta = activeAudioEdit.audioDelta ?? 0.3;
+            const delta = activeAudioEdit.audioDelta ?? 0.2;
             outputVolume = Math.max(0, volume - delta);
           }
           if (exportGainNode && exportAudioContext) {
@@ -681,20 +703,41 @@ export function PrototypePage() {
     };
 
     setMarkers((prev) => [...prev, marker]);
+    setMarkerUndoStack((prev) => [...prev, marker.id]);
     setFeedback(markerLabel(type) + " marker at " + formatTime(marker.tSec));
     setErrorText(null);
     if (mode === "watching") setMode("marking");
   }
 
   function undoLastMarker() {
-    if (markers.length === 0) {
+    if (markerUndoStack.length === 0) {
       setErrorText("No marker to undo.");
       return;
     }
-    const removed = markers[markers.length - 1];
-    const remaining = markers.slice(0, -1);
+
+    const liveIds = new Set(markers.map((m) => m.id));
+    let undoId: string | null = null;
+    const nextStack = [...markerUndoStack];
+
+    while (nextStack.length > 0) {
+      const candidate = nextStack[nextStack.length - 1];
+      nextStack.pop();
+      if (liveIds.has(candidate)) {
+        undoId = candidate;
+        break;
+      }
+    }
+
+    if (!undoId) {
+      setMarkerUndoStack(nextStack);
+      setErrorText("No marker to undo.");
+      return;
+    }
+
+    const remaining = markers.filter((m) => m.id !== undoId);
     setMarkers(remaining);
-    if (selectedMarkerId === removed.id) {
+    setMarkerUndoStack(nextStack);
+    if (selectedMarkerId === undoId) {
       const next = remaining.find((m) => m.status === "open") ?? remaining[remaining.length - 1] ?? null;
       setSelectedMarkerId(next ? next.id : null);
     }
@@ -711,6 +754,7 @@ export function PrototypePage() {
     }
     const remaining = markers.filter((m) => m.id !== selectedMarker.id);
     setMarkers(remaining);
+    setMarkerUndoStack((prev) => prev.filter((id) => id !== selectedMarker.id));
     const next = remaining.find((m) => m.status === "open") ?? remaining[remaining.length - 1] ?? null;
     setSelectedMarkerId(next ? next.id : null);
     setPendingAudioAction(null);
@@ -776,8 +820,15 @@ export function PrototypePage() {
   function applyLengthAction(action: LengthAction, levels?: number) {
     if (!selectedMarker || selectedMarker.type !== "length") return;
 
-    const beforeSec = Math.max(0, toSeconds(lengthBeforeValue, lengthBeforeUnit));
-    const afterSec = Math.max(0, toSeconds(lengthAfterValue, lengthAfterUnit));
+    const beforeRaw = parseRequiredNumber(lengthBeforeInput);
+    const afterRaw = parseRequiredNumber(lengthAfterInput);
+    if (beforeRaw == null || afterRaw == null || beforeRaw < 0 || afterRaw < 0) {
+      setErrorText("Enter both Before and After values (0 or greater).");
+      return;
+    }
+
+    const beforeSec = Math.max(0, toSeconds(beforeRaw, lengthBeforeUnit));
+    const afterSec = Math.max(0, toSeconds(afterRaw, lengthAfterUnit));
 
     const startTimeSec = Math.max(0, selectedMarker.tSec - beforeSec);
     const endTimeSec = selectedMarker.tSec + afterSec;
@@ -789,8 +840,18 @@ export function PrototypePage() {
 
     const speedLevels =
       action === "speedUp" || action === "slowDown"
-        ? Math.max(1, Math.min(5, levels ?? speedDeltaLevels))
+        ? Math.max(
+            1,
+            Math.min(
+              5,
+              levels ?? parseRequiredNumber(speedDeltaLevelsInput) ?? speedDeltaLevels
+            )
+          )
         : undefined;
+    if ((action === "speedUp" || action === "slowDown") && speedDeltaLevelsInput.trim() === "") {
+      setErrorText("Enter speed levels before applying.");
+      return;
+    }
     const speedFactor =
       action === "speedUp" || action === "slowDown"
         ? speedFactorFromLevels(action, speedLevels!)
@@ -835,8 +896,14 @@ export function PrototypePage() {
   function applyAudioAction(action: AudioAction, levels?: number) {
     if (!selectedMarker || selectedMarker.type !== "audioVisual") return;
 
-    const beforeSec = Math.max(0, toSeconds(lengthBeforeValue, lengthBeforeUnit));
-    const afterSec = Math.max(0, toSeconds(lengthAfterValue, lengthAfterUnit));
+    const beforeRaw = parseRequiredNumber(lengthBeforeInput);
+    const afterRaw = parseRequiredNumber(lengthAfterInput);
+    if (beforeRaw == null || afterRaw == null || beforeRaw < 0 || afterRaw < 0) {
+      setErrorText("Enter both Before and After values (0 or greater).");
+      return;
+    }
+    const beforeSec = Math.max(0, toSeconds(beforeRaw, lengthBeforeUnit));
+    const afterSec = Math.max(0, toSeconds(afterRaw, lengthAfterUnit));
 
     const startTimeSec = Math.max(0, selectedMarker.tSec - beforeSec);
     const endTimeSec = selectedMarker.tSec + afterSec;
@@ -846,7 +913,14 @@ export function PrototypePage() {
       return;
     }
 
-    const deltaLevels = Math.max(1, Math.min(10, levels ?? audioDeltaLevels));
+    if ((action === "increase" || action === "decrease") && audioDeltaLevelsInput.trim() === "") {
+      setErrorText("Enter audio levels before applying.");
+      return;
+    }
+    const deltaLevels = Math.max(
+      1,
+      Math.min(5, levels ?? parseRequiredNumber(audioDeltaLevelsInput) ?? audioDeltaLevels)
+    );
     const delta = Math.max(0, Math.min(1, deltaLevels / 10));
 
     setMarkers((prev) => {
@@ -896,6 +970,14 @@ export function PrototypePage() {
       setErrorText("Caption text is required before saving.");
       return;
     }
+    if (selectedMarker.type === "caption" && status === "resolved") {
+      const beforeRaw = parseRequiredNumber(lengthBeforeInput);
+      const afterRaw = parseRequiredNumber(lengthAfterInput);
+      if (beforeRaw == null || afterRaw == null || beforeRaw < 0 || afterRaw < 0) {
+        setErrorText("Enter both Before and After values (0 or greater).");
+        return;
+      }
+    }
 
     setMarkers((prev) => {
       const updated = prev.map((m) => {
@@ -903,14 +985,10 @@ export function PrototypePage() {
 
         // ===== CAPTION RANGE LOGIC =====
         if (m.type === "caption" && status === "resolved") {
-          const beforeSec = Math.max(
-            0,
-            toSeconds(lengthBeforeValue, lengthBeforeUnit)
-          );
-          const afterSec = Math.max(
-            0,
-            toSeconds(lengthAfterValue, lengthAfterUnit)
-          );
+          const beforeRaw = parseRequiredNumber(lengthBeforeInput);
+          const afterRaw = parseRequiredNumber(lengthAfterInput);
+          const beforeSec = Math.max(0, toSeconds(beforeRaw ?? 0, lengthBeforeUnit));
+          const afterSec = Math.max(0, toSeconds(afterRaw ?? 0, lengthAfterUnit));
 
           const startTimeSec = Math.max(0, m.tSec - beforeSec);
           const endTimeSec = m.tSec + afterSec;
@@ -1245,10 +1323,13 @@ export function PrototypePage() {
                         <input
                           type="number"
                           min={0}
-                          value={lengthBeforeValue}
-                          onChange={(e) =>
-                            setLengthBeforeValue(Math.max(0, Number(e.target.value)))
-                          }
+                          value={lengthBeforeInput}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setLengthBeforeInput(next);
+                            const parsed = parseRequiredNumber(next);
+                            if (parsed != null && parsed >= 0) setLengthBeforeValue(parsed);
+                          }}
                           className="caption-duration-input"
                         />
 
@@ -1272,10 +1353,13 @@ export function PrototypePage() {
                         <input
                           type="number"
                           min={0}
-                          value={lengthAfterValue}
-                          onChange={(e) =>
-                            setLengthAfterValue(Math.max(0, Number(e.target.value)))
-                          }
+                          value={lengthAfterInput}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setLengthAfterInput(next);
+                            const parsed = parseRequiredNumber(next);
+                            if (parsed != null && parsed >= 0) setLengthAfterValue(parsed);
+                          }}
                           className="caption-duration-input"
                         />
 
@@ -1321,8 +1405,13 @@ export function PrototypePage() {
                       <input
                         type="number"
                         min={0}
-                        value={lengthBeforeValue}
-                        onChange={(e) => setLengthBeforeValue(Math.max(0, Number(e.target.value)))}
+                        value={lengthBeforeInput}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setLengthBeforeInput(next);
+                          const parsed = parseRequiredNumber(next);
+                          if (parsed != null && parsed >= 0) setLengthBeforeValue(parsed);
+                        }}
                         className="caption-duration-input"
                       />
 
@@ -1344,8 +1433,13 @@ export function PrototypePage() {
                       <input
                         type="number"
                         min={0}
-                        value={lengthAfterValue}
-                        onChange={(e) => setLengthAfterValue(Math.max(0, Number(e.target.value)))}
+                        value={lengthAfterInput}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setLengthAfterInput(next);
+                          const parsed = parseRequiredNumber(next);
+                          if (parsed != null && parsed >= 0) setLengthAfterValue(parsed);
+                        }}
                         className="caption-duration-input"
                       />
 
@@ -1420,6 +1514,10 @@ export function PrototypePage() {
                             <button
                               className="primary-btn"
                               onClick={() => {
+                                if (speedDeltaLevelsInput.trim() === "") {
+                                  setErrorText("Enter speed levels before applying.");
+                                  return;
+                                }
                                 const levels = parseSpeedLevelsInput(speedDeltaLevelsInput, speedDeltaLevels);
                                 setSpeedDeltaLevels(levels);
                                 setSpeedDeltaLevelsInput(String(levels));
@@ -1462,10 +1560,13 @@ export function PrototypePage() {
                           <input
                             type="number"
                             min={0}
-                            value={lengthBeforeValue}
-                            onChange={(e) =>
-                              setLengthBeforeValue(Math.max(0, Number(e.target.value)))
-                            }
+                            value={lengthBeforeInput}
+                            onChange={(e) => {
+                              const next = e.target.value;
+                              setLengthBeforeInput(next);
+                              const parsed = parseRequiredNumber(next);
+                              if (parsed != null && parsed >= 0) setLengthBeforeValue(parsed);
+                            }}
                             className="caption-duration-input"
                           />
 
@@ -1489,10 +1590,13 @@ export function PrototypePage() {
                           <input
                             type="number"
                             min={0}
-                            value={lengthAfterValue}
-                            onChange={(e) =>
-                              setLengthAfterValue(Math.max(0, Number(e.target.value)))
-                            }
+                            value={lengthAfterInput}
+                            onChange={(e) => {
+                              const next = e.target.value;
+                              setLengthAfterInput(next);
+                              const parsed = parseRequiredNumber(next);
+                              if (parsed != null && parsed >= 0) setLengthAfterValue(parsed);
+                            }}
                             className="caption-duration-input"
                           />
 
@@ -1523,6 +1627,7 @@ export function PrototypePage() {
                     className="ghost-btn"
                     onClick={() => {
                       setPendingAudioAction("increase");
+                      setAudioDeltaLevelsInput(String(audioDeltaLevels));
                       setErrorText(null);
                     }}
                   >
@@ -1533,6 +1638,7 @@ export function PrototypePage() {
                     className="ghost-btn"
                     onClick={() => {
                       setPendingAudioAction("decrease");
+                      setAudioDeltaLevelsInput(String(audioDeltaLevels));
                       setErrorText(null);
                     }}
                   >
@@ -1542,23 +1648,46 @@ export function PrototypePage() {
                   {pendingAudioAction && (
                     <div style={{ marginTop: "10px" }}>
                       <p className="muted caption-duration-label">
-                        {pendingAudioAction === "increase" ? "Increase" : "Decrease"} by how many levels? (1-10)
+                        {pendingAudioAction === "increase" ? "Increase" : "Decrease"} by how many levels? (1-5)
                       </p>
                       <div className="caption-duration-row">
                         <input
                           type="number"
                           min={1}
-                          max={10}
+                          max={5}
                           step={1}
-                          value={audioDeltaLevels}
-                          onChange={(e) =>
-                            setAudioDeltaLevels(Math.max(1, Math.min(10, Number(e.target.value))))
-                          }
+                          value={audioDeltaLevelsInput}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            if (next === "") {
+                              setAudioDeltaLevelsInput("");
+                              return;
+                            }
+                            const parsed = parseRequiredNumber(next);
+                            if (parsed == null) return;
+                            const clamped = Math.max(1, Math.min(5, parsed));
+                            setAudioDeltaLevels(clamped);
+                            setAudioDeltaLevelsInput(String(clamped));
+                          }}
                           className="caption-duration-input"
                         />
                         <button
                           className="primary-btn"
-                          onClick={() => applyAudioAction(pendingAudioAction, audioDeltaLevels)}
+                          onClick={() => {
+                            if (audioDeltaLevelsInput.trim() === "") {
+                              setErrorText("Enter audio levels before applying.");
+                              return;
+                            }
+                            const parsed = parseRequiredNumber(audioDeltaLevelsInput);
+                            if (parsed == null) {
+                              setErrorText("Audio levels must be a number from 1 to 5.");
+                              return;
+                            }
+                            const clamped = Math.max(1, Math.min(5, parsed));
+                            setAudioDeltaLevels(clamped);
+                            setAudioDeltaLevelsInput(String(clamped));
+                            applyAudioAction(pendingAudioAction, clamped);
+                          }}
                         >
                           Apply
                         </button>

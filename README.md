@@ -56,7 +56,7 @@ After starting the dev server, open the local URL shown in the terminal.
 1. Select a marker from timeline.
 2. Use actions:
    - length: cut segment, or choose `speed up`/`slow down`, then enter `1-5` levels and click `Apply`
-   - audio: mute audio, or choose `increase`/`decrease`, then enter `1-10` levels and click `Apply`
+   - audio: mute audio, or choose `increase`/`decrease`, then enter `1-5` levels and click `Apply`
    - caption: enter text + display range + position (top/middle/bottom) + save
 3. Use `Keep as-is (skip)`, `Delete marker`, and `Undo Last Marker` when needed.
 4. Show open/resolved/skipped counts updating and marker state changes.
