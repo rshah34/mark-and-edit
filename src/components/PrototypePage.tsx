@@ -752,6 +752,10 @@ export function PrototypePage() {
       setErrorText("Select a marker to delete.");
       return;
     }
+    const confirmed = window.confirm(
+      `Delete this ${markerLabel(selectedMarker.type).toLowerCase()} marker at ${formatTime(selectedMarker.tSec)}?`,
+    );
+    if (!confirmed) return;
     const remaining = markers.filter((m) => m.id !== selectedMarker.id);
     setMarkers(remaining);
     setMarkerUndoStack((prev) => prev.filter((id) => id !== selectedMarker.id));
