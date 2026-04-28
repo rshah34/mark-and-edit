@@ -19,7 +19,7 @@ import { AudioAction, CaptionPosition, LengthAction, Marker, MarkerStatus, Marke
 const guide = [
   {
     key: "L",
-    detail: "Length edit marker",
+    detail: "Clip edit marker",
     icon: <Circle size={14} />,
     className: "is-length",
   },
@@ -44,7 +44,7 @@ function markerClass(type: MarkerType): string {
 }
 
 function markerLabel(type: MarkerType): string {
-  if (type === "length") return "Length";
+  if (type === "length") return "Clip";
   if (type === "audioVisual") return "Audio";
   return "Caption";
 }
@@ -888,10 +888,10 @@ export function PrototypePage() {
     setPendingSpeedAction(null);
     setFeedback(
       action === "cut"
-        ? "Length marker resolved: cut"
+        ? "Clip marker resolved: cut"
         : action === "speedUp"
-        ? `Length marker resolved: speed up (${(speedFactor ?? 1).toFixed(2)}x)`
-        : `Length marker resolved: slow down (${(speedFactor ?? 1).toFixed(2)}x)`
+        ? `Clip marker resolved: speed up (${(speedFactor ?? 1).toFixed(2)}x)`
+        : `Clip marker resolved: slow down (${(speedFactor ?? 1).toFixed(2)}x)`
     );
 
     setErrorText(null);
@@ -1073,7 +1073,7 @@ export function PrototypePage() {
         <div className="guide-color-legend" aria-label="Marker color legend">
           <span className="legend-item">
             <span className="legend-dot is-length" />
-            Length
+            Clip
           </span>
           <span className="legend-item">
             <span className="legend-dot is-edit" />
