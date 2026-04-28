@@ -37,7 +37,7 @@ After starting the dev server, open the local URL shown in the terminal.
 
 ### 4) Real-Time Marker Creation
 1. During playback, create multiple markers with:
-   - `L` for length
+   - `L` for clip length
    - `X` for audio
    - `C` for caption
 2. See marker count increasing in the status row.
@@ -56,7 +56,7 @@ After starting the dev server, open the local URL shown in the terminal.
 ### 7) Basic Edit Actions Per Marker
 1. Select a marker from timeline.
 2. Use actions:
-   - length: cut segment, or choose `speed up`/`slow down`, then enter `1-5` levels and click `Apply`
+   - clip: cut segment, or choose `speed up`/`slow down`, then enter `1-5` levels and click `Apply`
    - audio: mute audio, or choose `increase`/`decrease`, then enter `1-5` levels and click `Apply`
    - caption: enter text + display range + position (top/middle/bottom) + save
 3. Use `Delete marker` to remove a selected marker.
@@ -67,4 +67,4 @@ After starting the dev server, open the local URL shown in the terminal.
 1. Resolve or delete all open markers.
 2. Click `Start final playback`.
 3. Click `Download Completed Video`.
-4. Export includes currently implemented edit effects from resolved markers (e.g., length/caption/audio actions supported by the current export path).
+4. Export includes currently implemented edit effects from resolved markers (e.g., clip/caption/audio actions supported by the current export path).
